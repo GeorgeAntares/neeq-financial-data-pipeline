@@ -19,8 +19,8 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/你的用户名/项目名.git
-cd 项目名
+git clone https://github.com/GeorgeAntares/neeq-financial-crawler.git
+cd neeq-financial-crawler
 
 # 安装依赖
 pip install -r requirements.txt
