@@ -56,6 +56,9 @@ OUTPUT_DIR = {
     'log': os.path.join(BASE_DIR, 'output', 'log'),
 }
 
+# 爬取任务状态数据库
+CRAWL_DB_PATH = os.path.join(BASE_DIR, 'output', 'crawl_state.db')
+
 # 优雅停止标记文件
 STOP_FILE = os.path.join(BASE_DIR, 'STOP.txt')
 

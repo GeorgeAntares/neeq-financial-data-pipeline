@@ -58,16 +58,17 @@ pip install -r requirements.txt
 ### ① 搜索年报并下载 PDF
 
 ```bash
-# 新三板，搜索 2025 年年报
-python main.py --source neeq --year 2025
+# 按公告发布日期查询并下载，不解析 CSV
+python main.py --source neeq --start-date 2025-01-01 --end-date 2025-12-31 --skip-parse
 
-# 指定页码范围（跳过历史数据）
-python main.py --source neeq --year 2025 --start-page 1000 --max-pages 500
+# 仅查询公告并写入 SQLite，不下载 PDF
+python main.py --source neeq --year 2025 --skip-download
 ```
 
 ### ② 续爬模式
 
-已有公告列表 CSV，跳过搜索直接下载：
+再次执行相同命令时，程序根据 `output/crawl_state.db` 自动跳过已下载 PDF。
+`--resume` 只用于将旧版公告列表 CSV 导入 SQLite：
 
 ```bash
 python main.py --source neeq --resume
@@ -78,7 +79,7 @@ python main.py --source neeq --resume
 只下载 PDF，跳过解析（速度提升 25~30 倍）：
 
 ```bash
-python main.py --source neeq --resume --skip-parse
+python main.py --source neeq --year 2025 --skip-parse
 ```
 
 ### ④ 批量重解析备份 PDF
@@ -101,17 +102,76 @@ touch STOP.txt
 
 ---
 
+## 🗄️ SQLite 状态库设计
+
+项目使用 SQLite 替代页码爬取，通过日期范围查询 NEEQ 官方 API，彻底解决"新公告导致页码内容漂移"的问题。
+
+### 为什么选 SQLite
+
+| 对比维度 | SQLite | MySQL / MongoDB |
+|---------|--------|-----------------|
+| 部署成本 | **零依赖**，Python 标准库自带 | 需安装服务端、配置用户权限 |
+| 数据量级 | 年报项目最多数万条，完全够用 | 适合百万级以上 |
+| 项目可迁移性 | 单文件 `crawl_state.db`，复制即迁移 | 需导出/导入数据库 |
+| 数据类型安全 | `CHECK` 约束强制类型校验 | 依赖应用层或 Schema 定义 |
+
+### 数据表结构
+
+**`announcements`** — 公告与下载状态
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| `source` | TEXT | NOT NULL | 数据源（`neeq` / `cninfo`） |
+| `pdf_url` | TEXT | NOT NULL | PDF 下载链接 |
+| `company_code` | TEXT | | 公司代码 |
+| `company_name` | TEXT | | 公司简称 |
+| `publish_date` | TEXT | ISO 8601 格式 | 公告发布日期 |
+| `title` | TEXT | | 公告标题 |
+| `report_year` | INTEGER | `>= 1990` | 推断的财报所属年份 |
+| `status` | TEXT | CHECK IN (`pending`, `downloading`, `downloaded`, `failed`) | 下载状态 |
+| `file_path` | TEXT | | 本地 PDF 路径 |
+| `file_size` | INTEGER | `>= 0` | 文件大小（字节） |
+| `attempts` | INTEGER | `>= 0` | 重试次数 |
+| `error_message` | TEXT | | 失败原因 |
+| `discovered_count` | INTEGER | `>= 0` | 累计发现次数 |
+
+> **唯一约束**：`(source, pdf_url)` — 同一公告不会被重复记录
+
+**`crawl_runs`** — 爬取运行记录
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `started_at` | TEXT | 运行开始时间 |
+| `finished_at` | TEXT | 运行结束时间 |
+| `status` | TEXT | `running` / `completed` / `failed` / `interrupted` |
+| `total_discovered` | INTEGER | 本次发现公告数 |
+| `total_downloaded` | INTEGER | 本次下载成功数 |
+
+### 下载状态机
+
+```
+pending  ──→  downloading  ──→  downloaded
+  │                                │
+  └──────────  failed  ←───────────┘
+```
+
+- 程序启动时自动执行 `recover_incomplete_downloads()`，将残留的 `downloading` 重置为 `pending`
+- 再次运行相同命令时，已 `downloaded` 且 PDF 有效的记录会被自动跳过
+- 数据库启用 WAL 模式 + `busy_timeout=5000ms`，避免并发写入冲突
+
+---
+
 ## 📋 命令行参数
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | `--source` | 数据源：`cninfo`（巨潮资讯网）或 `neeq`（新三板） | `cninfo` |
-| `--year` | 年报年份 | 去年 |
+| `--year` | 公告发布日期年份，不等同于财报所属年份 | 去年 |
 | `--start-date` | 公告起始日期 `YYYY-MM-DD` | 无 |
 | `--end-date` | 公告截止日期 `YYYY-MM-DD` | 无 |
-| `--start-page` | 起始页码，跳过历史数据 | `1` |
+| `--start-page` | 查询结果起始页，仅用于故障恢复 | `1` |
 | `--max-pages` | 最大翻页数，`0` 表示不限 | `0` |
-| `--resume` | 续爬模式，从已有 CSV 加载公告列表 | 关闭 |
+| `--resume` | 将旧公告 CSV 导入 SQLite 并续爬 | 关闭 |
 | `--skip-parse` | 纯下载模式，只下载不解析 | 关闭 |
 | `--skip-download` | 仅搜索公告列表，不下载 | 关闭 |
 
@@ -121,6 +181,7 @@ touch STOP.txt
 
 ```
 output/
+├── crawl_state.db                ← SQLite 公告与下载状态库
 ├── pdf/
 │   └── 00_待分类/              ← 解析失败或待重试的 PDF 备份
 ├── csv/
@@ -149,11 +210,13 @@ neeq-financial-crawler/
 ├── main.py                 # 入口：爬虫主流程
 ├── neeq_crawler.py         # 新三板公告搜索与下载
 ├── cninfo_api.py           # 巨潮资讯网数据源接口
+├── database.py             # SQLite 公告与下载状态
 ├── pdf_parser.py           # PDF 表格解析引擎（pdfplumber + pymupdf）
 ├── data_exporter.py        # 解析结果导出为 CSV
 ├── csv_to_pdf.py           # CSV 转 HTML 可视化报表
 ├── retry_backup_pdfs.py    # 批量重解析备份 PDF
 ├── config.py               # 全局配置常量
+├── tests/                  # SQLite 与爬虫单元测试
 ├── requirements.txt        # Python 依赖
 ├── .gitignore              # Git 忽略规则
 └── README.md
@@ -175,7 +238,7 @@ python csv_to_pdf.py
 
 ## 🔗 数据源
 
-- [新三板信息披露平台](https://neeq.cs.com.cn/)
+- [全国股转系统信息披露平台](https://www.neeq.com.cn/m/disclosure/announcement.html)
 - [巨潮资讯网](https://www.cninfo.com.cn/)
 
 ---
