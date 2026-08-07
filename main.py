@@ -112,14 +112,17 @@ def run_cninfo(args, logger):
         api.close()
 
 
-def _has_complete_csvs(stock_code):
+def _has_complete_csvs(stock_code, report_year):
+    """Check whether all three financial statement CSVs already exist for a given stock and year."""
     report_names = ['合并资产负债表', '合并利润表', '合并现金流量表']
     csv_dir = OUTPUT_DIR['csv']
+    year_marker = f'_{report_year}_'
     for report_name in report_names:
         found = any(
             filename.startswith(f'{stock_code}_')
+            and year_marker in filename
             and filename.endswith(f'_{report_name}.csv')
-            and os.path.getsize(os.path.join(csv_dir, filename)) > 200
+            and os.path.getsize(os.path.join(csv_dir, filename)) >= 1024
             for filename in os.listdir(csv_dir)
         )
         if not found:
@@ -198,7 +201,7 @@ def _process_neeq_announcements(
             title,
         )
 
-        if not skip_parse and _has_complete_csvs(stock_code):
+        if not skip_parse and _has_complete_csvs(stock_code, report_year):
             stats['skipped_parse'] += 1
             if _consume_stop_request(logger):
                 stats['interrupted'] = True
