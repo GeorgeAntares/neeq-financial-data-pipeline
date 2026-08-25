@@ -4,9 +4,9 @@
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
 </p>
 
-<h1 align="center">📊 中小微上市公司财报爬虫</h1>
+<h1 align="center">📊 NEEQ 上市公司财报数据采集与分析</h1>
 
-<p align="center">从新三板与巨潮资讯网抓取年报 PDF，自动解析三大财务报表并导出为结构化 CSV</p>
+<p align="center">从新三板与巨潮资讯网抓取年报 PDF，三级引擎解析三大财务报表，导出结构化 CSV 并进行统计分析与可视化</p>
 
 ---
 
@@ -16,9 +16,11 @@
 - [环境要求](#-环境要求)
 - [快速开始](#-快速开始)
 - [命令行参数](#-命令行参数)
+- [数据分析](#-数据分析)
 - [输出文件](#-输出文件)
 - [项目结构](#-项目结构)
 - [CSV 可视化](#-csv-可视化)
+- [技术架构](#-技术架构)
 - [数据源](#-数据源)
 - [已知局限](#-已知局限)
 - [适用场景](#-适用场景)
@@ -29,8 +31,9 @@
 
 - 🔍 搜索新三板与巨潮资讯网的年报公告
 - 📥 自动下载年报 PDF，支持断点续爬
-- ⚡ 双重引擎解析财务表格（pdfplumber 主引擎 + pymupdf 回退）
+- ⚡ 三级引擎解析财务表格（pdfplumber → PyMuPDF → RapidOCR OCR 回退）
 - 📋 导出标准格式的 CSV 财务数据（三大报表）
+- 📊 营收分析、盈利能力分析、现金流分析、统计可视化
 - ⏸️ 支持纯下载模式、优雅停止、备份 PDF 批量重解析
 
 ---
@@ -177,6 +180,35 @@ pending  ──→  downloading  ──→  downloaded
 
 ---
 
+## 📊 数据分析
+
+对已导出的 CSV 财务数据进行统计分析与可视化：
+
+```bash
+python financial_analysis.py
+```
+
+### 分析模块
+
+| 模块 | 内容 |
+|------|------|
+| 数据加载 | 批量读取 CSV，解析公司代码、年份、报表项目 |
+| 营收分析 | 营收均值/中位数/分布区间、Top 20 企业排名 |
+| 盈利能力 | 毛利率计算、盈亏企业占比、毛利率分布 |
+| 现金流分析 | 经营活动现金流净额、正/负现金流企业占比 |
+| 可视化 | 营收分布直方图、毛利率分布、Top 15 柱状图、现金流对比 |
+| 汇总统计 | 输出 `summary_statistics.csv` 关键指标汇总 |
+
+### 输出
+
+```
+output/analysis/
+├── financial_analysis.png     ← 四合一可视化图表
+└── summary_statistics.csv     ← 关键指标汇总
+```
+
+---
+
 ## 📁 输出文件
 
 ```
@@ -189,6 +221,9 @@ output/
 │   ├── 代码_名称_年份_合并资产负债表.csv
 │   ├── 代码_名称_年份_合并利润表.csv
 │   └── 代码_名称_年份_合并现金流量表.csv
+├── analysis/                    ← 数据分析输出
+│   ├── financial_analysis.png  ← 可视化图表
+│   └── summary_statistics.csv  ← 汇总统计
 ├── log/                        ← 运行日志
 └── html/                       ← HTML 可视化报表（选配）
 ```
@@ -211,10 +246,12 @@ neeq-financial-crawler/
 ├── neeq_crawler.py         # 新三板公告搜索与下载
 ├── cninfo_api.py           # 巨潮资讯网数据源接口
 ├── database.py             # SQLite 公告与下载状态
-├── pdf_parser.py           # PDF 表格解析引擎（pdfplumber + pymupdf）
+├── pdf_parser.py           # PDF 表格解析引擎（pdfplumber + PyMuPDF + RapidOCR）
 ├── data_exporter.py        # 解析结果导出为 CSV
+├── financial_analysis.py   # 数据分析与可视化（pandas + matplotlib）
 ├── csv_to_pdf.py           # CSV 转 HTML 可视化报表
 ├── retry_backup_pdfs.py    # 批量重解析备份 PDF
+├── smoke_test.py           # 端到端冒烟测试
 ├── config.py               # 全局配置常量
 ├── tests/                  # SQLite 与爬虫单元测试
 ├── requirements.txt        # Python 依赖
@@ -236,6 +273,38 @@ python csv_to_pdf.py
 
 ---
 
+## 🏗️ 技术架构
+
+### PDF 解析三级回退
+
+```
+pdfplumber (文本层提取)  →  PyMuPDF (备用文本层)  →  RapidOCR (视觉识别)
+     ↓                         ↓                          ↓
+   主引擎                    第二级回退                   第三级回退
+  速度快                     速度快                      速度慢但最鲁棒
+  规范PDF有效               复杂排版有效                图片型PDF有效
+```
+
+| 引擎 | 原理 | 优势 | 局限 |
+|------|------|------|------|
+| pdfplumber | PDF文本层+坐标对齐 | 速度快，结构清晰 | 合并单元格易错位 |
+| PyMuPDF | PDF文本层直接提取 | 兼容性好，速度快 | 复杂排版仍可能失败 |
+| RapidOCR | 渲染为图片+ONNX视觉识别 | 最鲁棒，图片型PDF也能识别 | 速度慢（秒/页） |
+
+> RapidOCR 使用与 PaddleOCR 相同的 PP-OCR 模型，但基于 ONNX Runtime 推理，避免了 PaddlePaddle 在 Windows 上的 oneDNN 兼容问题。
+
+### 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 数据采集 | requests, NEEQ/CNINFO API |
+| PDF解析 | pdfplumber, PyMuPDF, RapidOCR (ONNX) |
+| 数据存储 | SQLite (状态管理), CSV (数据导出) |
+| 数据分析 | pandas, NumPy |
+| 可视化 | matplotlib |
+
+---
+
 ## 🔗 数据源
 
 - [全国股转系统信息披露平台](https://www.neeq.com.cn/m/disclosure/announcement.html)
@@ -245,9 +314,10 @@ python csv_to_pdf.py
 
 ## ⚠️ 已知局限
 
-> - 图片型表格（扫描件 PDF）当前无法提取，约 **10~15%** 的资产负债表受此影响
-> - 利润表识别准确率约 **60~70%**，持续优化中
+> - 三级回退已覆盖大部分 PDF 类型，但极少数扫描质量过低的图片型表格仍可能失败
 > - PDF 附注内容可能被误判为财务报表数据，需后续清洗
+> - `financial_analysis.py` 中利润表有效数据量较少（受限于 CSV 解析成功率），现金流数据覆盖率较高
+> - OCR 回退速度约为 1-2 秒/页，批量处理 800+ PDF 时耗时较长
 
 ---
 
@@ -256,3 +326,4 @@ python csv_to_pdf.py
 - 新三板及中小上市公司财报批量采集
 - 金融数据分析、财务指标计算
 - 学术研究中需要大量结构化财报数据
+- 端到端数据流水线实践：采集 → 解析 → 清洗 → 分析 → 可视化
