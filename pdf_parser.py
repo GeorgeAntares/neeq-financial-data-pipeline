@@ -1,6 +1,7 @@
 import pdfplumber
 import re
 import logging
+import os
 import pandas as pd
 import fitz  # pymupdf，图片型PDF的备用提取方案
 
@@ -100,7 +101,14 @@ class PDFParser:
                             df = df_pymupdf
                             logger.info(f'{stmt_type} pymupdf回退成功: {len(df)}行数据')
                         else:
-                            logger.warning(f'{stmt_type} pymupdf也无法提取有效数据，跳过（可能是图片型表格）')
+                            logger.info(f'{stmt_type} pymupdf也无法提取有效数据，尝试OCR回退 / OCR fallback')
+                            ocr_end = min(start_page + 12, end_page)
+                            df_ocr = self._parse_with_ocr(pdf_path, stmt_type, start_page, ocr_end)
+                            if df_ocr is not None and len(df_ocr) >= 5 and self._is_quality_data(df_ocr, stmt_type):
+                                df = df_ocr
+                                logger.info(f'{stmt_type} OCR回退成功: {len(df)}行数据 / OCR fallback success')
+                            else:
+                                logger.warning(f'{stmt_type} OCR也无法提取有效数据，跳过 / All methods failed')
                     
                     result[stmt_type] = df
                     if df is not None:
@@ -607,3 +615,169 @@ class PDFParser:
         except Exception as e:
             logger.warning(f'pymupdf解析失败: {e}')
             return None
+
+    def _parse_with_ocr(self, pdf_path, stmt_type, start_page, end_page):
+        """
+        OCR 第三级回退方案 / OCR third-level fallback
+        适用于 pdfplumber 和 pymupdf 都无法提取的图片型/复杂排版PDF
+        Renders PDF pages to images, uses RapidOCR (ONNX-based PP-OCR) for text recognition.
+        """
+        os.environ.pop('HTTP_PROXY', None)
+        os.environ.pop('HTTPS_PROXY', None)
+
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+        except ImportError:
+            logger.warning('rapidocr_onnxruntime 未安装，跳过OCR回退 / RapidOCR not installed')
+            return None
+
+        if not hasattr(self, '_ocr_engine'):
+            logger.info('初始化RapidOCR引擎 / Initializing RapidOCR engine...')
+            self._ocr_engine = RapidOCR()
+
+        import tempfile
+
+        column_names = {
+            'balance_sheet': ['项目', '期末余额', '期初余额'],
+            'income_statement': ['项目', '本期金额', '上期金额'],
+            'cash_flow': ['项目', '本期金额', '上期金额'],
+        }
+
+        try:
+            doc = fitz.open(pdf_path)
+            all_items = []
+
+            for pn in range(start_page, end_page + 1):
+                idx = pn - 1
+                if idx >= doc.page_count:
+                    break
+
+                page = doc[idx]
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                temp_img = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+                temp_img.close()
+                pix.save(temp_img.name)
+
+                try:
+                    result, elapse = self._ocr_engine(temp_img.name)
+                finally:
+                    os.unlink(temp_img.name)
+
+                if not result:
+                    continue
+
+                items = self._parse_ocr_result(result, stmt_type)
+                for item_name, current_val, prior_val in items:
+                    if item_name:
+                        all_items.append((item_name, current_val, prior_val))
+
+            doc.close()
+
+            if len(all_items) < 3:
+                return None
+
+            cols = column_names.get(stmt_type, ['项目', '列1', '列2'])
+            df = pd.DataFrame(all_items, columns=cols)
+            df = self._clean_dataframe(df)
+            return df
+
+        except Exception as e:
+            logger.warning(f'OCR解析失败 / OCR parse failed: {e}')
+            return None
+
+    def _parse_ocr_result(self, ocr_result, stmt_type):
+        """
+        将RapidOCR结果解析为结构化行 / Parse RapidOCR results into structured rows
+        RapidOCR returns: [[box, text, score], ...]
+        Groups text boxes by y-coordinate (rows), then separates item names from numbers.
+        """
+        if not ocr_result:
+            return []
+
+        boxes = []
+        for item in ocr_result:
+            if not item or len(item) < 3:
+                continue
+            box_coords = item[0]
+            text = str(item[1])
+            conf = float(item[2])
+
+            if conf < 0.5:
+                continue
+
+            y_center = sum(p[1] for p in box_coords) / 4
+            x_center = sum(p[0] for p in box_coords) / 4
+
+            boxes.append({
+                'text': text.strip(),
+                'y_center': y_center,
+                'x_center': x_center,
+            })
+
+        if not boxes:
+            return []
+
+        boxes.sort(key=lambda b: b['y_center'])
+
+        ROW_THRESHOLD = 15
+        rows = []
+        current_row = [boxes[0]]
+
+        for i in range(1, len(boxes)):
+            if abs(boxes[i]['y_center'] - current_row[-1]['y_center']) < ROW_THRESHOLD:
+                current_row.append(boxes[i])
+            else:
+                rows.append(current_row)
+                current_row = [boxes[i]]
+        if current_row:
+            rows.append(current_row)
+
+        items = []
+        header_detected = False
+
+        for row in rows:
+            row.sort(key=lambda b: b['x_center'])
+
+            text_parts = []
+            number_parts = []
+            for box in row:
+                t = box['text'].replace(',', '').replace('，', '').strip()
+                try:
+                    cleaned = t.replace('(', '-').replace(')', '').replace(' ', '')
+                    float(cleaned)
+                    number_parts.append(box['text'].strip())
+                except ValueError:
+                    if t:
+                        text_parts.append(box['text'].strip())
+
+            if not text_parts and not number_parts:
+                continue
+
+            joined = ' '.join(text_parts)
+            if not header_detected:
+                if '项目' in joined or '本期金额' in joined or '期末余额' in joined:
+                    header_detected = True
+                    continue
+
+            if not header_detected:
+                continue
+
+            item_name = ''.join(text_parts) if text_parts else None
+            current_val = number_parts[0] if number_parts else None
+            prior_val = number_parts[1] if len(number_parts) > 1 else None
+
+            if item_name:
+                if any(kw in item_name for kw in ['法定代表人', '主管会计', '会计机构']):
+                    break
+                if stmt_type == 'income_statement':
+                    if any(kw in item_name for kw in ['合并资产负债表', '合并现金流量表']):
+                        break
+                elif stmt_type == 'cash_flow':
+                    if any(kw in item_name for kw in ['合并资产负债表', '合并利润表']):
+                        break
+                elif stmt_type == 'balance_sheet':
+                    if any(kw in item_name for kw in ['合并利润表', '合并现金流量表']):
+                        break
+                items.append((item_name, current_val, prior_val))
+
+        return items
