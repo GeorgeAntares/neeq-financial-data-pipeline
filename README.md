@@ -34,6 +34,7 @@
 - ⚡ 三级引擎解析财务表格（pdfplumber → PyMuPDF → RapidOCR OCR 回退）/ Three-tier parsing engine (pdfplumber → PyMuPDF → RapidOCR OCR fallback)
 - 📋 导出标准格式的 CSV 财务数据（三大报表）/ Export standardised CSV for three major financial statements
 - 📊 营收分析、盈利能力分析、现金流分析、统计可视化 / Revenue analysis, profitability analysis, cash flow analysis, statistical visualisation
+- 🤖 机器学习财务健康度分类（随机森林，542家企业，7维特征）/ ML financial health classification (Random Forest, 542 companies, 7 features)
 - ⏸️ 支持纯下载模式、优雅停止、备份 PDF 批量重解析 / Download-only mode, graceful stop, batch re-parse for backup PDFs
 
 ---
@@ -219,6 +220,35 @@ output/analysis/
 
 ---
 
+## 🤖 机器学习 / Machine Learning
+
+基于现金流数据构建7维特征，使用随机森林对企业财务健康度进行二分类预测：
+Builds 7 features from cash flow data, uses Random Forest for binary classification of company financial health:
+
+```bash
+python ml_financial_health.py
+```
+
+### 模型设计 / Model Design
+
+| 项目 / Item | 说明 / Description |
+|------|------|
+| 样本量 / Sample size | 542 家企业 / 542 companies |
+| 特征 / Features | 7维（销售收现、税费返还、采购付现、职工薪酬、税费支出、投资现金流、筹资现金流）/ 7-dim |
+| 标签 / Label | 财务健康（经营现金流为正 且 现金净增加额为正）/ Financially healthy (OCF > 0 AND net cash increase > 0) |
+| 模型 / Model | RandomForestClassifier, 100 trees, max_depth=5 |
+| 划分 / Split | 80/20 stratified train-test split |
+
+### 输出 / Output
+
+```
+output/analysis/
+├── ml_classification.png     ← 特征重要性 + 混淆矩阵 / Feature importance + confusion matrix
+└── ml_predictions.csv        ← 542家企业预测结果 / 542-company predictions
+```
+
+---
+
 ## 📁 输出文件 / Output Files
 
 ```
@@ -232,8 +262,10 @@ output/
 │   ├── 代码_名称_年份_合并利润表.csv
 │   └── 代码_名称_年份_合并现金流量表.csv
 ├── analysis/                    ← 数据分析输出 / Data analysis output
-│   ├── financial_analysis.png  ← 可视化图表 / Visualisation chart
-│   └── summary_statistics.csv  ← 汇总统计 / Summary statistics
+│   ├── financial_analysis.png  ← 统计可视化图表 / Statistical charts
+│   ├── summary_statistics.csv  ← 汇总统计 / Summary statistics
+│   ├── ml_classification.png   ← ML特征重要性+混淆矩阵 / ML feature importance + confusion matrix
+│   └── ml_predictions.csv       ← 542家企业ML预测结果 / 542-company ML predictions
 ├── log/                        ← 运行日志 / Runtime logs
 └── html/                       ← HTML 可视化报表（选配）/ HTML reports (optional)
 ```
@@ -259,6 +291,7 @@ neeq-financial-crawler/
 ├── pdf_parser.py           # PDF 表格解析引擎 / PDF table parsing engine (pdfplumber + PyMuPDF + RapidOCR)
 ├── data_exporter.py        # 解析结果导出为 CSV / Export parsed results to CSV
 ├── financial_analysis.py   # 数据分析与可视化 / Data analysis & visualisation (pandas + matplotlib)
+├── ml_financial_health.py  # 机器学习财务健康度分类 / ML financial health classification (scikit-learn)
 ├── csv_to_pdf.py           # CSV 转 HTML 可视化报表 / CSV to HTML report converter
 ├── retry_backup_pdfs.py    # 批量重解析备份 PDF / Batch re-parse backup PDFs
 ├── smoke_test.py           # 端到端冒烟测试 / End-to-end smoke test
@@ -318,6 +351,7 @@ pdfplumber (文本层提取)  →  PyMuPDF (备用文本层)  →  RapidOCR (视
 | PDF解析 / PDF Parsing | pdfplumber, PyMuPDF, RapidOCR (ONNX) |
 | 数据存储 / Data Storage | SQLite (状态管理 / state), CSV (数据导出 / export) |
 | 数据分析 / Data Analysis | pandas, NumPy |
+| 机器学习 / Machine Learning | scikit-learn (Random Forest, classification) |
 | 可视化 / Visualisation | matplotlib |
 
 ---
@@ -343,4 +377,4 @@ pdfplumber (文本层提取)  →  PyMuPDF (备用文本层)  →  RapidOCR (视
 - 新三板及中小上市公司财报批量采集 / Batch collection of NEEQ & SME financial reports
 - 金融数据分析、财务指标计算 / Financial data analysis, indicator calculation
 - 学术研究中需要大量结构化财报数据 / Academic research requiring large-scale structured financial data
-- 端到端数据流水线实践：采集 → 解析 → 清洗 → 分析 → 可视化 / End-to-end data pipeline practice: collect → parse → clean → analyse → visualise
+- 端到端数据流水线实践：采集 → 解析 → 清洗 → 分析 → 机器学习 → 可视化 / End-to-end data pipeline: collect → parse → clean → analyse → ML → visualise
