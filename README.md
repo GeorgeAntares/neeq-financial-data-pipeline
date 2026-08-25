@@ -17,6 +17,8 @@
 - [快速开始 / Quick Start](#-快速开始--quick-start)
 - [命令行参数 / CLI Arguments](#-命令行参数--cli-arguments)
 - [数据分析 / Data Analysis](#-数据分析--data-analysis)
+- [机器学习 / Machine Learning](#-机器学习--machine-learning)
+- [深度学习 / Deep Learning](#-深度学习--deep-learning)
 - [输出文件 / Output Files](#-输出文件--output-files)
 - [项目结构 / Project Structure](#-项目结构--project-structure)
 - [CSV 可视化 / CSV Visualisation](#-csv-可视化--csv-visualisation)
@@ -35,6 +37,7 @@
 - 📋 导出标准格式的 CSV 财务数据（三大报表）/ Export standardised CSV for three major financial statements
 - 📊 营收分析、盈利能力分析、现金流分析、统计可视化 / Revenue analysis, profitability analysis, cash flow analysis, statistical visualisation
 - 🤖 机器学习财务健康度分类（随机森林，542家企业，7维特征）/ ML financial health classification (Random Forest, 542 companies, 7 features)
+- 🧠 深度学习财务健康度分类（PyTorch MLP，7→64→32→1，早停+Dropout）/ DL financial health classification (PyTorch MLP, early stopping + Dropout)
 - ⏸️ 支持纯下载模式、优雅停止、备份 PDF 批量重解析 / Download-only mode, graceful stop, batch re-parse for backup PDFs
 
 ---
@@ -249,6 +252,51 @@ output/analysis/
 
 ---
 
+## 🧠 深度学习 / Deep Learning
+
+使用 PyTorch 构建多层感知机（MLP），对同一组现金流特征进行财务健康度二分类，与传统机器学习模型形成对比：
+Uses PyTorch to build a Multilayer Perceptron (MLP) for financial health binary classification on the same cash flow features, providing a deep learning baseline alongside the traditional ML model:
+
+```bash
+python dl_financial_health.py
+```
+
+### 模型架构 / Model Architecture
+
+```
+Input(7) → Linear(64) → BatchNorm → ReLU → Dropout(0.3)
+        → Linear(32) → BatchNorm → ReLU → Dropout(0.3)
+        → Linear(1)  → Sigmoid → 财务健康概率 / health probability
+```
+
+| 项目 / Item | 说明 / Description |
+|------|------|
+| 框架 / Framework | PyTorch (MLP) |
+| 样本量 / Sample size | 542 家企业 / 542 companies |
+| 特征 / Features | 7维（与机器学习模型一致）/ 7-dim (same as ML model) |
+| 损失函数 / Loss | BCELoss（二分类交叉熵）/ Binary Cross-Entropy |
+| 优化器 / Optimiser | Adam, lr=0.001 |
+| 正则化 / Regularisation | BatchNorm + Dropout(0.3) + Early Stopping (patience=20) |
+| 批大小 / Batch Size | 32 |
+| 划分 / Split | 80/20 stratified train-test split |
+
+### ML vs DL 对比 / ML vs DL Comparison
+
+| 模型 / Model | 准确率 / Accuracy | 特点 / Characteristics |
+|------|------|------|
+| 随机森林 / Random Forest | 57.8% | 可解释性强，特征重要性清晰 / Highly interpretable, clear feature importance |
+| PyTorch MLP | 59.6% | 准确率略高，适合扩展到更复杂架构 / Slightly higher accuracy, extensible to deeper architectures |
+
+### 输出 / Output
+
+```
+output/analysis/
+├── dl_classification.png     ← 训练损失曲线 + 混淆矩阵 + ROC曲线 / Training loss + confusion matrix + ROC curve
+└── dl_predictions.csv        ← 542家企业DL预测结果 / 542-company DL predictions
+```
+
+---
+
 ## 📁 输出文件 / Output Files
 
 ```
@@ -265,7 +313,9 @@ output/
 │   ├── financial_analysis.png  ← 统计可视化图表 / Statistical charts
 │   ├── summary_statistics.csv  ← 汇总统计 / Summary statistics
 │   ├── ml_classification.png   ← ML特征重要性+混淆矩阵 / ML feature importance + confusion matrix
-│   └── ml_predictions.csv       ← 542家企业ML预测结果 / 542-company ML predictions
+│   ├── ml_predictions.csv       ← 542家企业ML预测结果 / 542-company ML predictions
+│   ├── dl_classification.png   ← DL训练损失+混淆矩阵+ROC / DL training loss + confusion matrix + ROC
+│   └── dl_predictions.csv       ← 542家企业DL预测结果 / 542-company DL predictions
 ├── log/                        ← 运行日志 / Runtime logs
 └── html/                       ← HTML 可视化报表（选配）/ HTML reports (optional)
 ```
@@ -292,6 +342,7 @@ neeq-financial-crawler/
 ├── data_exporter.py        # 解析结果导出为 CSV / Export parsed results to CSV
 ├── financial_analysis.py   # 数据分析与可视化 / Data analysis & visualisation (pandas + matplotlib)
 ├── ml_financial_health.py  # 机器学习财务健康度分类 / ML financial health classification (scikit-learn)
+├── dl_financial_health.py  # 深度学习财务健康度分类 / DL financial health classification (PyTorch MLP)
 ├── csv_to_pdf.py           # CSV 转 HTML 可视化报表 / CSV to HTML report converter
 ├── retry_backup_pdfs.py    # 批量重解析备份 PDF / Batch re-parse backup PDFs
 ├── smoke_test.py           # 端到端冒烟测试 / End-to-end smoke test
@@ -352,6 +403,7 @@ pdfplumber (文本层提取)  →  PyMuPDF (备用文本层)  →  RapidOCR (视
 | 数据存储 / Data Storage | SQLite (状态管理 / state), CSV (数据导出 / export) |
 | 数据分析 / Data Analysis | pandas, NumPy |
 | 机器学习 / Machine Learning | scikit-learn (Random Forest, classification) |
+| 深度学习 / Deep Learning | PyTorch (MLP, BatchNorm, Dropout, Early Stopping) |
 | 可视化 / Visualisation | matplotlib |
 
 ---
@@ -377,4 +429,4 @@ pdfplumber (文本层提取)  →  PyMuPDF (备用文本层)  →  RapidOCR (视
 - 新三板及中小上市公司财报批量采集 / Batch collection of NEEQ & SME financial reports
 - 金融数据分析、财务指标计算 / Financial data analysis, indicator calculation
 - 学术研究中需要大量结构化财报数据 / Academic research requiring large-scale structured financial data
-- 端到端数据流水线实践：采集 → 解析 → 清洗 → 分析 → 机器学习 → 可视化 / End-to-end data pipeline: collect → parse → clean → analyse → ML → visualise
+- 端到端数据流水线实践：采集 → 解析 → 清洗 → 分析 → 机器学习 → 深度学习 → 可视化 / End-to-end data pipeline: collect → parse → clean → analyse → ML → DL → visualise
