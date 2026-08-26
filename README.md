@@ -242,14 +242,39 @@ python ml_financial_health.py
 | 特征 / Features | 7维（销售收现、税费返还、采购付现、职工薪酬、税费支出、投资现金流、筹资现金流）/ 7-dim |
 | 标签 / Label | 财务健康（经营现金流为正 且 现金净增加额为正）/ Financially healthy (OCF > 0 AND net cash increase > 0) |
 | 模型 / Model | RandomForestClassifier, 100 trees, max_depth=5 |
-| 划分 / Split | 80/20 stratified train-test split |
+| 划分 / Split | 80/20 stratified train-test split + 5-Fold Stratified Cross-Validation |
+
+### 严谨化评估 / Rigorous Evaluation
+
+使用 5 折 Stratified 交叉验证与 ROC-AUC/Precision-Recall 指标，替代单一 accuracy 报告，得到带方差的可信估计：
+Uses 5-fold Stratified Cross-Validation with ROC-AUC / Precision-Recall metrics, replacing a single accuracy with robust, variance-aware estimates:
+
+```bash
+python ml_evaluation.py
+```
+
+**结果 / Results（均值 ± 标准差）**
+
+| 指标 / Metric | 数值 / Value |
+|------|------|
+| Accuracy | 0.609 ± 0.032 |
+| Precision | 0.531 ± 0.052 |
+| Recall | 0.336 ± 0.091 |
+| F1 | 0.409 ± 0.085 |
+| **ROC-AUC** | **0.615 ± 0.040** |
+
+平均 AUC 0.615 显著优于随机猜测（0.5），说明现金流特征包含可泛化的财务健康信号。
+Mean AUC of 0.615 significantly exceeds random chance (0.5), indicating generalisable financial health signals in the cash-flow features.
 
 ### 输出 / Output
 
 ```
 output/analysis/
 ├── ml_classification.png     ← 特征重要性 + 混淆矩阵 / Feature importance + confusion matrix
-└── ml_predictions.csv        ← 542家企业预测结果 / 542-company predictions
+├── ml_predictions.csv        ← 542家企业预测结果 / 542-company predictions
+├── roc_pr_curves.png         ← 交叉验证 ROC + PR 曲线 / CV ROC + PR curves
+├── ml_cv_results.csv         ← 每折指标明细 / Per-fold metric details
+└── ml_cv_summary.md          ← 评估汇总报告 / Evaluation summary report
 ```
 
 ---
@@ -344,6 +369,9 @@ output/
 │   ├── summary_statistics.csv  ← 汇总统计 / Summary statistics
 │   ├── ml_classification.png   ← ML特征重要性+混淆矩阵 / ML feature importance + confusion matrix
 │   ├── ml_predictions.csv       ← 542家企业ML预测结果 / 542-company ML predictions
+│   ├── roc_pr_curves.png       ← 交叉验证ROC+PR曲线 / CV ROC + PR curves
+│   ├── ml_cv_results.csv       ← 每折评估指标 / Per-fold CV metrics
+│   ├── ml_cv_summary.md        ← 评估汇总报告 / CV summary report
 │   ├── shap_summary.png        ← SHAP beeswarm 图 / SHAP beeswarm plot
 │   ├── shap_importance.png     ← SHAP特征重要性 / SHAP feature importance
 │   ├── shap_insights.md        ← SHAP财务解读报告 / SHAP financial insights
@@ -375,6 +403,7 @@ neeq-financial-data-pipeline/
 ├── data_exporter.py        # 解析结果导出为 CSV / Export parsed results to CSV
 ├── financial_analysis.py   # 数据分析与可视化 / Data analysis & visualisation (pandas + matplotlib)
 ├── ml_financial_health.py  # 机器学习财务健康度分类 / ML financial health classification (scikit-learn)
+├── ml_evaluation.py        # 交叉验证严谨化评估 / Rigorous evaluation (K-Fold CV + ROC-AUC)
 ├── shap_analysis.py        # 模型可解释性分析 / Model interpretability (SHAP)
 ├── dl_financial_health.py  # 深度学习财务健康度分类 / DL financial health classification (PyTorch MLP)
 ├── csv_to_pdf.py           # CSV 转 HTML 可视化报表 / CSV to HTML report converter
