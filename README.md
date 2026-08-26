@@ -18,6 +18,7 @@
 - [命令行参数 / CLI Arguments](#-命令行参数--cli-arguments)
 - [数据分析 / Data Analysis](#-数据分析--data-analysis)
 - [机器学习 / Machine Learning](#-机器学习--machine-learning)
+- [模型可解释性 / Model Interpretability](#-模型可解释性--model-interpretability)
 - [深度学习 / Deep Learning](#-深度学习--deep-learning)
 - [输出文件 / Output Files](#-输出文件--output-files)
 - [项目结构 / Project Structure](#-项目结构--project-structure)
@@ -37,6 +38,7 @@
 - 📋 导出标准格式的 CSV 财务数据（三大报表）/ Export standardised CSV for three major financial statements
 - 📊 营收分析、盈利能力分析、现金流分析、统计可视化 / Revenue analysis, profitability analysis, cash flow analysis, statistical visualisation
 - 🤖 机器学习财务健康度分类（随机森林，542家企业，7维特征）/ ML financial health classification (Random Forest, 542 companies, 7 features)
+- 🔍 模型可解释性分析（SHAP，特征重要性 + 方向性财务解读）/ Model interpretability with SHAP (feature importance + directional financial insights)
 - 🧠 深度学习财务健康度分类（PyTorch MLP，7→64→32→1，早停+Dropout）/ DL financial health classification (PyTorch MLP, early stopping + Dropout)
 - ⏸️ 支持纯下载模式、优雅停止、备份 PDF 批量重解析 / Download-only mode, graceful stop, batch re-parse for backup PDFs
 
@@ -51,8 +53,8 @@
 
 ```bash
 # 克隆项目 / Clone the repository
-git clone https://github.com/GeorgeAntares/neeq-financial-crawler.git
-cd neeq-financial-crawler
+git clone https://github.com/GeorgeAntares/neeq-financial-data-pipeline.git
+cd neeq-financial-data-pipeline
 
 # 安装依赖 / Install dependencies
 pip install -r requirements.txt
@@ -252,6 +254,34 @@ output/analysis/
 
 ---
 
+## 🔍 模型可解释性 / Model Interpretability
+
+使用 SHAP（TreeExplainer）对随机森林模型进行可解释性分析，输出特征重要性排序、方向性影响，并结合财务知识给出业务解读：
+Uses SHAP (TreeExplainer) to interpret the Random Forest model, outputting feature importance ranking, directional impact, and financial-knowledge-based business insights:
+
+```bash
+python shap_analysis.py
+```
+
+### 核心发现 / Key Findings
+
+| 特征 / Feature | 重要性排序 / Rank | 方向 / Direction | 业务解读 / Business Insight |
+|------|------|------|------|
+| fcf（筹资净额）/ Financing CF | 1 | 负向 / Negative | 筹资净流入越多越不健康——依赖外部融资反映内生造血不足 / Heavy external financing indicates weak internal cash generation |
+| sales_cash（销售收现）/ Sales receipts | 2 | 正向 / Positive | 销售回款规模是健康度最强正向信号（现金为王）/ Cash collection from sales is the strongest positive signal |
+| icf（投资净额）/ Investing CF | 3 | 正向 / Positive | 投资净流入（处置资产/收回投资）与健康度正相关 / Asset disposal & investment recovery correlate with health |
+
+### 输出 / Output
+
+```
+output/analysis/
+├── shap_summary.png        ← SHAP beeswarm 图 / SHAP beeswarm summary plot
+├── shap_importance.png     ← 平均 |SHAP| 特征重要性 / Mean |SHAP| importance bar chart
+└── shap_insights.md        ← 结合财务知识的解读报告 / Financial-knowledge insight report
+```
+
+---
+
 ## 🧠 深度学习 / Deep Learning
 
 使用 PyTorch 构建多层感知机（MLP），对同一组现金流特征进行财务健康度二分类，与传统机器学习模型形成对比：
@@ -314,6 +344,9 @@ output/
 │   ├── summary_statistics.csv  ← 汇总统计 / Summary statistics
 │   ├── ml_classification.png   ← ML特征重要性+混淆矩阵 / ML feature importance + confusion matrix
 │   ├── ml_predictions.csv       ← 542家企业ML预测结果 / 542-company ML predictions
+│   ├── shap_summary.png        ← SHAP beeswarm 图 / SHAP beeswarm plot
+│   ├── shap_importance.png     ← SHAP特征重要性 / SHAP feature importance
+│   ├── shap_insights.md        ← SHAP财务解读报告 / SHAP financial insights
 │   ├── dl_classification.png   ← DL训练损失+混淆矩阵+ROC / DL training loss + confusion matrix + ROC
 │   └── dl_predictions.csv       ← 542家企业DL预测结果 / 542-company DL predictions
 ├── log/                        ← 运行日志 / Runtime logs
@@ -333,7 +366,7 @@ output/
 ## 📂 项目结构 / Project Structure
 
 ```
-neeq-financial-crawler/
+neeq-financial-data-pipeline/
 ├── main.py                 # 入口：爬虫主流程 / Entry point: crawler main flow
 ├── neeq_crawler.py         # 新三板公告搜索与下载 / NEEQ announcement search & download
 ├── cninfo_api.py           # 巨潮资讯网数据源接口 / CNINFO data source API
@@ -342,6 +375,7 @@ neeq-financial-crawler/
 ├── data_exporter.py        # 解析结果导出为 CSV / Export parsed results to CSV
 ├── financial_analysis.py   # 数据分析与可视化 / Data analysis & visualisation (pandas + matplotlib)
 ├── ml_financial_health.py  # 机器学习财务健康度分类 / ML financial health classification (scikit-learn)
+├── shap_analysis.py        # 模型可解释性分析 / Model interpretability (SHAP)
 ├── dl_financial_health.py  # 深度学习财务健康度分类 / DL financial health classification (PyTorch MLP)
 ├── csv_to_pdf.py           # CSV 转 HTML 可视化报表 / CSV to HTML report converter
 ├── retry_backup_pdfs.py    # 批量重解析备份 PDF / Batch re-parse backup PDFs
