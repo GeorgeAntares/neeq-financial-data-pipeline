@@ -1,4 +1,5 @@
 <p align="center">
+  <img src="https://img.shields.io/badge/Version-0.1.0-blue?logo=git&logoColor=white" alt="Version">
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
