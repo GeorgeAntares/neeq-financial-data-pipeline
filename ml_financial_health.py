@@ -33,7 +33,7 @@ import os
 import re
 import warnings
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_predict
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 
@@ -171,12 +171,15 @@ X = df[feature_cols_model].values
 y = df['healthy'].values
 
 # 标准化 / Standardise
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X_scaled, y, test_size=0.2, random_state=42, stratify=y
+# 仅在训练集上 fit，避免测试集信息渗入（标准化泄漏）
+X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
 )
+
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train_raw)
+X_test = scaler.transform(X_test_raw)
+
 print(f"  训练集 / Train: {len(X_train)} 样本 / samples")
 print(f"  测试集 / Test: {len(X_test)} 样本 / samples")
 
@@ -252,8 +255,31 @@ plt.savefig(os.path.join(OUTPUT_DIR, 'ml_classification.png'), dpi=150, bbox_inc
 print(f"  图表已保存 / Chart saved: output/analysis/ml_classification.png")
 
 # 保存预测结果 / Save predictions
-df['predicted_healthy'] = clf.predict(X_scaled)
-df['prediction_proba'] = clf.predict_proba(X_scaled)[:, 1]
+# 用交叉验证获取"样本外"预测：clf 已见过全部训练数据，
+# 若直接对全量数据 predict，输出的会是训练集上的拟合值（乐观偏差），
+# 不能反映模型的真实判别能力。cross_val_predict 保证每行的预测都
+# 来自没见过该行的模型。
+X_all_scaled = scaler.transform(X)
+cv_pred = cross_val_predict(
+    RandomForestClassifier(n_estimators=100, random_state=42, max_depth=5),
+    X_all_scaled,
+    y,
+    cv=5,
+    method='predict',
+)
+cv_proba = cross_val_predict(
+    RandomForestClassifier(n_estimators=100, random_state=42, max_depth=5),
+    X_all_scaled,
+    y,
+    cv=5,
+    method='predict_proba',
+)[:, 1]
+
+df['predicted_healthy'] = cv_pred
+df['prediction_proba'] = cv_proba
+cv_accuracy = accuracy_score(y, cv_pred)
+print(f"  交叉验证准确率 / Cross-validated accuracy: {cv_accuracy:.4f}")
+
 output_csv = os.path.join(OUTPUT_DIR, 'ml_predictions.csv')
 df[['stock_code', 'company_name', 'ocf', 'net_cash_increase',
     'healthy', 'predicted_healthy', 'prediction_proba']].to_csv(
@@ -262,6 +288,7 @@ print(f"  预测结果已保存 / Predictions saved: output/analysis/ml_predicti
 
 print("\n" + "=" * 60)
 print("ML 分析完成 / ML Analysis Complete")
-print(f"模型准确率 / Model Accuracy: {accuracy:.2%}")
+print(f"模型准确率（留出测试集）/ Hold-out accuracy: {accuracy:.2%}")
+print(f"交叉验证准确率 / Cross-validated accuracy: {cv_accuracy:.2%}")
 print(f"样本量 / Sample size: {len(df)} companies")
 print("=" * 60)

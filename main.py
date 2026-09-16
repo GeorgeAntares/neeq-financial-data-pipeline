@@ -3,6 +3,7 @@ import argparse
 from datetime import datetime
 import os
 import shutil
+import sys
 from config import (
     PLATE_CODES,
     CATEGORY_CODES,
@@ -173,6 +174,7 @@ def _process_neeq_announcements(
         'restored': 0,
         'failed': 0,
         'parsed': 0,
+        'parse_failed': 0,
         'skipped_parse': 0,
         'interrupted': False,
     }
@@ -272,7 +274,17 @@ def _process_neeq_announcements(
             continue
 
         logger.info('开始解析PDF...')
-        reports = parser.parse_pdf(active_pdf_path)
+        try:
+            reports = parser.parse_pdf(active_pdf_path)
+        except Exception:
+            # 单个损坏/加密/超大 PDF 不应中断整批任务，记录堆栈后继续下一个
+            logger.exception(f'解析PDF失败，跳过: {active_pdf_path}')
+            stats['parse_failed'] += 1
+            if _consume_stop_request(logger):
+                stats['interrupted'] = True
+                break
+            continue
+
         exporter.export_all_reports(
             reports,
             stock_code,
@@ -280,8 +292,13 @@ def _process_neeq_announcements(
             report_year,
         )
         parsed_count = sum(1 for value in reports.values() if value is not None)
-        logger.info(f'解析完成，成功提取 {parsed_count}/3 张报表')
-        stats['parsed'] += 1
+        if parsed_count == 0:
+            # 三张报表全部解析失败，不计入成功，便于事后定位问题文件
+            logger.warning(f'{stock_code} {stock_name} 未提取到任何有效报表')
+            stats['parse_failed'] += 1
+        else:
+            logger.info(f'解析完成，成功提取 {parsed_count}/3 张报表')
+            stats['parsed'] += 1
 
         if _consume_stop_request(logger):
             stats['interrupted'] = True
@@ -296,9 +313,10 @@ def _process_neeq_announcements(
     )
     if not skip_parse:
         logger.info(
-            '解析统计: 完成 %s，已有CSV跳过 %s',
+            '解析统计: 完成 %s，已有CSV跳过 %s，解析失败 %s',
             stats['parsed'],
             stats['skipped_parse'],
+            stats['parse_failed'],
         )
     return stats
 
@@ -488,9 +506,14 @@ def main():
                 run_neeq(args, logger)
         else:
             run_cninfo(args, logger)
-    except Exception as e:
-        logger.error(f'爬虫执行失败: {e}', exc_info=True)
+    except Exception:
+        # 记录完整堆栈，并以非零退出码结束，
+        # 否则定时任务/CI 无法感知失败，会误判为执行成功
+        logger.exception('爬虫执行失败')
+        return 1
+    
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

@@ -143,13 +143,13 @@ The project uses SQLite instead of page-based crawling, querying the NEEQ API by
 | `company_name` | TEXT | | 公司简称 / Company name |
 | `publish_date` | TEXT | ISO 8601 格式 / ISO 8601 | 公告发布日期 / Announcement date |
 | `title` | TEXT | | 公告标题 / Announcement title |
-| `report_year` | INTEGER | `>= 1990` | 推断的财报所属年份 / Inferred report year |
+| `report_year` | INTEGER | `1900–2100` | 推断的财报所属年份 / Inferred report year |
 | `status` | TEXT | CHECK IN (`pending`, `downloading`, `downloaded`, `failed`) | 下载状态 / Download status |
 | `file_path` | TEXT | | 本地 PDF 路径 / Local PDF path |
 | `file_size` | INTEGER | `>= 0` | 文件大小（字节）/ File size in bytes |
 | `attempts` | INTEGER | `>= 0` | 重试次数 / Retry count |
-| `error_message` | TEXT | | 失败原因 / Error message |
-| `discovered_count` | INTEGER | `>= 0` | 累计发现次数 / Total discovery count |
+| `last_error` | TEXT | | 失败原因 / Error message |
+| `sha256` | TEXT | 64 位小写十六进制 / 64-char hex | 文件校验（可选）/ Optional file hash |
 
 > **唯一约束 / Unique Constraint**：`(source, pdf_url)` — 同一公告不会被重复记录 / The same announcement is never recorded twice
 
@@ -157,11 +157,15 @@ The project uses SQLite instead of page-based crawling, querying the NEEQ API by
 
 | 字段 / Field | 类型 / Type | 说明 / Description |
 |------|------|------|
+| `source` | TEXT | 数据源 / Data source |
+| `start_date` / `end_date` | TEXT | 本次查询日期范围 / Query date range |
+| `report_type` | TEXT | 默认 `annual` / Default `annual` |
+| `status` | TEXT | `running` / `completed` / `failed` / `interrupted` |
+| `discovered_count` | INTEGER | 本次发现公告数 / Announcements discovered this run |
+| `downloaded_count` | INTEGER | 本次新下载成功数 / PDFs newly downloaded this run |
+| `failed_count` | INTEGER | 本次下载失败数 / Failed downloads this run |
 | `started_at` | TEXT | 运行开始时间 / Run start time |
 | `finished_at` | TEXT | 运行结束时间 / Run end time |
-| `status` | TEXT | `running` / `completed` / `failed` / `interrupted` |
-| `total_discovered` | INTEGER | 本次发现公告数 / Announcements discovered this run |
-| `total_downloaded` | INTEGER | 本次下载成功数 / PDFs downloaded this run |
 
 ### 下载状态机 / Download State Machine
 
@@ -481,9 +485,9 @@ pdfplumber (文本层提取)  →  PyMuPDF (备用文本层)  →  RapidOCR (视
 
 ## ⚠️ 已知局限 / Known Limitations
 
-> - 三级回退已覆盖大部分 PDF 类型，但极少数扫描质量过低的图片型表格仍可能失败 / The three-tier fallback covers most PDF types, but a few low-quality scanned images may still fail
-> - PDF 附注内容可能被误判为财务报表数据，需后续清洗 / PDF footnotes may be misidentified as statement data, requiring further cleaning
-> - `financial_analysis.py` 中利润表有效数据量较少（受限于 CSV 解析成功率），现金流数据覆盖率较高 / Income statement data is limited by CSV parsing success rate; cash flow data has higher coverage
+> - 三级回退已覆盖大部分 PDF 类型，但极少数扫描质量过低的图片型表格仍可能失败；失败时该表会被丢弃，不再导出假数据 / The three-tier fallback covers most PDFs; remaining failures discard the statement instead of writing fake rows
+> - PDF 附注内容仍可能被误判为财务报表数据；分析模块会优先取主表行并排除「其中：」明细 / Footnotes may still be misread as statements; analysis prefers primary rows and skips 「其中：」 lines
+> - `financial_analysis.py` 中利润表有效数据量较少（受限于 CSV 解析成功率），现金流数据覆盖率较高；旧 CSV 需用当前解析器重跑才会更新 / Income statement coverage is still limited; existing CSVs are unchanged until re-parsed
 > - OCR 回退速度约为 1-2 秒/页，批量处理 800+ PDF 时耗时较长 / OCR fallback runs at ~1-2s per page, making batch processing of 800+ PDFs time-consuming
 
 ---

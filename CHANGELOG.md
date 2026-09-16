@@ -3,6 +3,21 @@
 本项目遵循语义化版本（SemVer）与 Keep a Changelog 规范。
 All notable changes follow Semantic Versioning and Keep a Changelog.
 
+## [Unreleased]
+
+### Fixed / 修复
+
+- 利润表第二轮定位在未赋值 `sorted_pages` 时会 `NameError`，导致整份 PDF 解析失败 / Income-statement fallback used `sorted_pages` before it was assigned, aborting the whole PDF
+- 三级解析全部失败时仍可能导出低质量表；现改为显式丢弃（宁可缺数据，不可存假数据）/ Failed three-tier parses are discarded instead of exporting low-quality tables
+- 利润表增加「营业收入/营业总收入须带有效数值」校验，减少附注表被当成主表 / Income statements now require a numeric revenue row
+- 单份 PDF 解析异常不再中断整批任务；进程失败以非零退出码结束 / One bad PDF no longer stops the batch; crashes exit non-zero
+- 分析模块按主表行去重，避免「其中：营业收入」等附注明细重复计数 / Analysis picks primary rows so footnote lines are not double-counted
+- 随机森林标准化改为仅在训练集 `fit`；全量预测改用交叉验证，避免乐观偏差 / Scaler fits on train only; full-set predictions use cross-validation
+
+### Changed / 变更
+
+- `.gitignore` 增加 `.trae/`，不提交 IDE 规则目录 / Ignore `.trae/` IDE metadata
+
 ## [v0.1.0] - 2026-08-27 正式版 / Stable Release
 
 ### Added / 新增

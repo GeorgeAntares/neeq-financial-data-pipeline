@@ -108,7 +108,10 @@ class PDFParser:
                                 df = df_ocr
                                 logger.info(f'{stmt_type} OCR回退成功: {len(df)}行数据 / OCR fallback success')
                             else:
-                                logger.warning(f'{stmt_type} OCR也无法提取有效数据，跳过 / All methods failed')
+                                # 三级解析全部失败：必须显式置空，否则低质量数据会被当作
+                                # 有效结果导出，污染下游分析（宁可缺数据，不可存假数据）
+                                logger.warning(f'{stmt_type} OCR也无法提取有效数据，舍弃该表 / All methods failed')
+                                df = None
                     
                     result[stmt_type] = df
                     if df is not None:
@@ -175,6 +178,9 @@ class PDFParser:
                                 logger.info(f'找到{stmt_type}起始页: 第{pn}页 (表格匹配)')
                                 break
         
+        # 第一轮已找到的报表页码（升序），第二轮备用检测依赖它划定搜索区间
+        sorted_pages = sorted(positions.keys())
+
         # 第二轮：利润表备用检测（在第一轮没找到时）
         if 'income_statement' not in found_types and len(sorted_pages) >= 1:
             # 在有报表的页面附近搜索IS：BS之后到CF之前，或已知报表前后10页
@@ -216,6 +222,7 @@ class PDFParser:
                     break
         
         # 重新排序，确定页码范围
+        # 注意：第二轮可能已向 positions 新增利润表页，此处必须重算，不可复用上面的 sorted_pages
         sorted_pages = sorted(positions.keys())
         ranges = {}
         for i, st_page in enumerate(sorted_pages):
@@ -305,7 +312,36 @@ class PDFParser:
         items_text = ' '.join(items)
         match_count = sum(1 for item in check_items if item in items_text)
         
-        return match_count >= 2
+        if match_count < 2:
+            return False
+        
+        # 利润表额外校验：营业收入（或营业总收入）行必须带有效数值。
+        # 仅靠关键词计数会放过两类脏数据：
+        #   1. 数值与科目行错位（如金额被粘在"五、32"这类附注编号行上），营业收入行金额为空
+        #   2. 抽到的是附注明细表，却被归一化成利润表列名，产生"看起来有效"的假数据
+        if stmt_type == 'income_statement' and not self._has_valid_revenue(df):
+            logger.info('income_statement 营业收入行无有效数值，判定为低质量数据')
+            return False
+        
+        return True
+
+    def _has_valid_revenue(self, df):
+        """
+        检查利润表中"营业收入/营业总收入"行是否带有至少一个有效数值
+        :param df: 已清洗（金额列已解析为数字）的利润表DataFrame
+        :return: bool
+        """
+        revenue_keywords = ('营业总收入', '营业收入')
+        
+        for _, row in df.iterrows():
+            item = str(row.iloc[0]) if row.iloc[0] is not None else ''
+            if not any(k in item for k in revenue_keywords):
+                continue
+            for value in row.iloc[1:]:
+                if isinstance(value, (int, float)) and not pd.isna(value):
+                    return True
+        
+        return False
 
     def _is_main_financial_table(self, table, stmt_type):
         """
