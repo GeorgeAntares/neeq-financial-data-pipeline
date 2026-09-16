@@ -110,6 +110,44 @@ def to_numeric_safe(value):
         return np.nan
 
 
+def pick_primary_row(df, keywords, value_col='current'):
+    """
+    从明细行中挑出"主表行"，并保证每家公司只保留一条。
+
+    直接用 str.contains 做子串匹配会把附注明细行一并命中（例如
+    "营业收入" 会同时命中 "其中：营业收入"，现金流量表子项也会命中
+    "经营活动产生的现金流量净额"），导致同一公司被重复计数、
+    统计口径虚高。这里做两步收敛：
+      1. 排除以"其中"开头的附注细分行；
+      2. 同等条件下优先取与关键词完全相等（去空白后）的行，
+         其次取项目名最短的行（主表行通常最简短）。
+    :return: 每家公司一行的 DataFrame，附带 value 列
+    """
+    matched = df[df['item'].str.contains('|'.join(keywords), na=False)].copy()
+    if matched.empty:
+        matched['value'] = np.nan
+        return matched
+
+    # 排除附注细分行（"其中：xxx"）
+    primary = matched[~matched['item'].str.strip().str.startswith('其中')].copy()
+    if primary.empty:
+        primary = matched.copy()
+
+    primary['value'] = primary[value_col].apply(to_numeric_safe)
+    primary = primary.dropna(subset=['value'])
+
+    if primary.empty:
+        return primary
+
+    # 排序优先级：完全匹配关键词优先，其次项目名更短（更像主表行）
+    stripped = primary['item'].str.strip()
+    primary['_exact'] = stripped.isin(keywords).astype(int)
+    primary['_len'] = stripped.str.len()
+    primary = primary.sort_values(['_exact', '_len'], ascending=[False, True])
+    primary = primary.drop_duplicates(subset=['stock_code'], keep='first')
+    return primary.drop(columns=['_exact', '_len'])
+
+
 print("=" * 60)
 print("NEEQ 财报数据分析 / NEEQ Financial Data Analysis")
 print("=" * 60)
@@ -132,12 +170,13 @@ print(f"  企业数 Companies: {cashflow_df['stock_code'].nunique()}")
 
 print("\n[3/6] 营收分析 / Revenue Analysis...")
 
-revenue_df = income_df[income_df['item'].str.contains('营业收入', na=False)].copy()
-revenue_df['revenue'] = revenue_df['current'].apply(to_numeric_safe)
-revenue_df = revenue_df.dropna(subset=['revenue'])
+revenue_df = pick_primary_row(income_df, ['营业总收入', '营业收入'])
+revenue_df = revenue_df.rename(columns={'value': 'revenue'})
 revenue_df = revenue_df[revenue_df['revenue'] > 0]
 
 print(f"\n  有效营收数据企业 Companies with valid revenue: {len(revenue_df)}")
+print(f"  （利润表覆盖企业 Income statement coverage: {income_df['stock_code'].nunique()} 家，"
+      f"有效率 {len(revenue_df) / max(income_df['stock_code'].nunique(), 1) * 100:.1f}%）")
 print(f"  营收均值 Mean revenue: {revenue_df['revenue'].mean() / 1e8:.2f} 亿元 / 100M CNY")
 print(f"  营收中位数 Median revenue: {revenue_df['revenue'].median() / 1e8:.2f} 亿元 / 100M CNY")
 print(f"  营收标准差 Std: {revenue_df['revenue'].std() / 1e8:.2f} 亿元 / 100M CNY")
@@ -166,9 +205,8 @@ for i, (_, row) in enumerate(top20.iterrows(), 1):
 
 print("\n[4/6] 盈利能力分析 / Profitability Analysis...")
 
-cost_df = income_df[income_df['item'].str.contains('营业成本', na=False)].copy()
-cost_df['cost'] = cost_df['current'].apply(to_numeric_safe)
-cost_df = cost_df.dropna(subset=['cost'])
+cost_df = pick_primary_row(income_df, ['营业总成本', '营业成本'])
+cost_df = cost_df.rename(columns={'value': 'cost'})
 
 # 合并营收和成本 / Merge revenue and cost
 profit_df = revenue_df[['stock_code', 'company_name', 'revenue']].merge(
@@ -203,13 +241,12 @@ for label, count in margin_dist.items():
 
 print("\n[5/6] 现金流分析 / Cash Flow Analysis...")
 
-operating_cf = cashflow_df[
-    cashflow_df['item'].str.contains('经营活动产生的现金流量净额', na=False)
-].copy()
-operating_cf['ocf'] = operating_cf['current'].apply(to_numeric_safe)
-operating_cf = operating_cf.dropna(subset=['ocf'])
+operating_cf = pick_primary_row(cashflow_df, ['经营活动产生的现金流量净额'])
+operating_cf = operating_cf.rename(columns={'value': 'ocf'})
 
 print(f"  有效经营现金流企业 Companies with OCF data: {len(operating_cf)}")
+print(f"  （现金流量表覆盖企业 Cash flow statement coverage: "
+      f"{cashflow_df['stock_code'].nunique()} 家）")
 print(f"  经营现金流均值 Mean OCF: {operating_cf['ocf'].mean() / 1e8:.2f} 亿元 / 100M CNY")
 print(f"  经营现金流中位数 Median OCF: {operating_cf['ocf'].median() / 1e4:.2f} 万元 / 10K CNY")
 
@@ -276,8 +313,11 @@ print(f"  图表已保存 Chart saved: output/analysis/financial_analysis.png")
 
 summary = pd.DataFrame({
     '指标 Metric': [
-        '企业总数 Total Companies (Revenue)',
-        '企业总数 Total Companies (OCF)',
+        '利润表覆盖企业 Income Statement Coverage',
+        '营收有效样本 Companies with Valid Revenue',
+        '营收有效率 Revenue Valid Rate (%)',
+        '现金流量表覆盖企业 Cash Flow Coverage',
+        'OCF有效样本 Companies with Valid OCF',
         '营收均值 Mean Revenue (CNY)',
         '营收中位数 Median Revenue (CNY)',
         '毛利率均值 Mean Gross Margin (%)',
@@ -285,12 +325,15 @@ summary = pd.DataFrame({
         '营收 Top 1 公司 Top 1 Revenue Company',
     ],
     '值 Value': [
+        income_df['stock_code'].nunique(),
         len(revenue_df),
+        f"{len(revenue_df) / max(income_df['stock_code'].nunique(), 1) * 100:.1f}%",
+        cashflow_df['stock_code'].nunique(),
         len(operating_cf),
         f"{revenue_df['revenue'].mean():,.0f}",
         f"{revenue_df['revenue'].median():,.0f}",
         f"{profit_df['gross_margin'].mean():.2f}%",
-        f"{len(positive_ocf) / len(operating_cf) * 100:.1f}%",
+        f"{len(positive_ocf) / max(len(operating_cf), 1) * 100:.1f}%",
         f"{top20.iloc[0]['company_name']} ({top20.iloc[0]['revenue'] / 1e8:.2f}亿)",
     ]
 })

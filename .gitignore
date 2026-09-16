@@ -20,6 +20,7 @@ env/
 # IDE 配置
 .vscode/
 .idea/
+.trae/
 *.swp
 *.swo
 
