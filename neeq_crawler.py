@@ -98,6 +98,28 @@ def _request_announcement_page(session, page, start_date, end_date):
     ) from last_error
 
 
+_NON_ANNUAL_MARKERS = (
+    "半年度",
+    "半年报",
+    "中期报告",
+    "一季度",
+    "三季度",
+    "季度报告",
+    "一季报",
+    "三季报",
+)
+
+
+def is_annual_report_title(title):
+    """True for annual-report body PDFs; false for 摘要/半年报/已取消/季报."""
+    text = str(title or "")
+    if "已取消" in text or "摘要" in text:
+        return False
+    if any(marker in text for marker in _NON_ANNUAL_MARKERS):
+        return False
+    return "年度报告" in text
+
+
 def _normalize_announcement(item, start_date, end_date):
     title = str(item.get("disclosureTitle") or "").strip()
     post_title = str(item.get("disclosurePostTitle") or "").strip()
@@ -106,9 +128,7 @@ def _normalize_announcement(item, start_date, end_date):
     file_type = str(item.get("fileExt") or "").upper()
     file_path = str(item.get("destFilePath") or "").strip()
 
-    if "年度报告" not in title or "摘要" in title:
-        return None
-    if "已取消" in full_title:
+    if not is_annual_report_title(full_title):
         return None
     if file_type != "PDF" or not file_path:
         return None
