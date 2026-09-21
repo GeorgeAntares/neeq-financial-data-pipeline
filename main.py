@@ -13,6 +13,7 @@ from config import (
 )
 from cninfo_api import CNInfoAPI
 from database import CrawlRepository, infer_report_year
+from neeq_crawler import is_annual_report_title
 from pdf_parser import PDFParser
 from data_exporter import DataExporter
 
@@ -416,11 +417,7 @@ def run_neeq_resume(args, logger):
     with open(csv_path, 'r', encoding='utf-8-sig') as file:
         for row in csv.DictReader(file):
             title = row.get('announcementTitle', '')
-            if (
-                '年度报告' in title
-                and '摘要' not in title
-                and '已取消' not in title
-            ):
+            if is_annual_report_title(title):
                 announcements.append(row)
 
     logger.info(
@@ -462,7 +459,7 @@ def process_announcements(announcements, args, api, parser, exporter, logger, so
             logger.warning(f'非PDF格式({adjunct_type})，跳过')
             continue
         
-        if '年度报告' not in title or '摘要' in title:
+        if not is_annual_report_title(title):
             logger.info(f'非年度报告正文，跳过')
             continue
         

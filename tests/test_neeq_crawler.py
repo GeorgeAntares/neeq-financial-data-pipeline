@@ -5,6 +5,7 @@ from pathlib import Path
 from neeq_crawler import (
     _normalize_announcement,
     _parse_jsonp,
+    is_annual_report_title,
     is_valid_pdf,
 )
 
@@ -49,9 +50,12 @@ class NeeqCrawlerTest(unittest.TestCase):
             disclosureTitle="测试公司：2024年年度报告摘要"
         )
         cancelled = self.source_item(disclosurePostTitle="（已取消）")
+        half_year = self.source_item(
+            disclosureTitle="测试公司：2026年半年度报告"
+        )
         out_of_range = self.source_item(publishDate="2025-05-01")
 
-        for item in (summary, cancelled, out_of_range):
+        for item in (summary, cancelled, half_year, out_of_range):
             with self.subTest(item=item):
                 self.assertIsNone(
                     _normalize_announcement(
@@ -60,6 +64,13 @@ class NeeqCrawlerTest(unittest.TestCase):
                         "2025-04-30",
                     )
                 )
+
+    def test_annual_report_title_rejects_interim_and_cancelled(self):
+        self.assertTrue(is_annual_report_title("测试公司：2025年年度报告"))
+        self.assertFalse(is_annual_report_title("测试公司：2026年半年度报告"))
+        self.assertFalse(is_annual_report_title("测试公司：2025年年度报告（已取消）"))
+        self.assertFalse(is_annual_report_title("测试公司：2025年年度报告摘要"))
+        self.assertFalse(is_annual_report_title("测试公司：2025年第三季度报告"))
 
     def test_pdf_validation_uses_file_header(self):
         with tempfile.TemporaryDirectory() as temp_dir:
