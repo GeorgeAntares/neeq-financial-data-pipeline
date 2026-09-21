@@ -7,6 +7,9 @@ All notable changes follow Semantic Versioning and Keep a Changelog.
 
 ### Fixed / 修复
 
+- 解析器将「附注」列（注释31 / 五、32）截成金额列，利润表页还会吞进资产负债表尾巴；现改为压缩空列、丢弃附注、按报表类型认主表 / Drop footnote columns and leftover balance-sheet tables instead of treating them as amounts
+- 现金流量表页范围会扫到财务报表附注；现每张表最多 6–8 页，并在「年度财务报表附注」处停止定位 / Cap statement page spans and stop at the notes heading
+- 资产负债表表头常用「2025年12月31日」而非「期末余额」，导致主表定位失败、误命中附注页 / Recognise year-end date headers when locating the balance sheet
 - 利润表第二轮定位在未赋值 `sorted_pages` 时会 `NameError`，导致整份 PDF 解析失败 / Income-statement fallback used `sorted_pages` before it was assigned, aborting the whole PDF
 - 三级解析全部失败时仍可能导出低质量表；现改为显式丢弃（宁可缺数据，不可存假数据）/ Failed three-tier parses are discarded instead of exporting low-quality tables
 - 利润表增加「营业收入/营业总收入须带有效数值」校验，减少附注表被当成主表 / Income statements now require a numeric revenue row

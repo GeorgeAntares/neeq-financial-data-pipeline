@@ -10,12 +10,61 @@ logger = logging.getLogger(__name__)
 
 class PDFParser:
     """年报PDF财务报表解析器"""
+
+    # 单张报表最多扫这么多页，避免现金流量表一直吃到「财务报表附注」
+    MAX_STATEMENT_PAGES = {
+        'balance_sheet': 8,
+        'income_statement': 6,
+        'cash_flow': 8,
+    }
+
+    # 附注编号：注释31 / 五、32 / 附注 6
+    _NOTE_VALUE_RE = re.compile(
+        r'^(注释|附注|注)\s*\d+$'
+        r'|^[一二三四五六七八九十]+[、.．]\s*\d+$'
+    )
+
+    _TABLE_KEYWORDS = {
+        'balance_sheet': {
+            'positive': [
+                '货币资金', '流动资产', '资产总计', '流动负债', '合同负债',
+                '所有者权益', '应付账款', '应收账款', '固定资产', '负债合计',
+            ],
+            'negative': [
+                '营业收入', '营业总收入', '经营活动产生的现金流量',
+                '折旧方法', '使用年限', '残值率',
+            ],
+        },
+        'income_statement': {
+            'positive': [
+                '营业收入', '营业总收入', '营业成本', '营业总成本',
+                '营业利润', '利润总额', '净利润',
+            ],
+            'negative': [
+                '合同负债', '持有待售负债', '货币资金', '资产总计',
+                '经营活动产生的现金流量', '折旧方法',
+            ],
+        },
+        'cash_flow': {
+            'positive': [
+                '经营活动', '投资活动', '筹资活动', '销售商品',
+                '购买商品', '现金及现金等价物',
+            ],
+            'negative': [
+                '营业收入', '营业总收入', '资产总计', '合同负债',
+                '折旧方法',
+            ],
+        },
+    }
     
     # 三大报表的识别特征
     STATEMENT_MARKERS = {
         'balance_sheet': {
             'title': ['合并资产负债表', '资产负债表'],
-            'headers': ['期末余额', '期初余额', '期末数', '期初数'],
+            'headers': [
+                '期末余额', '期初余额', '期末数', '期初数',
+                '年12月31日', '年末余额', '年初余额',
+            ],
         },
         'income_statement': {
             'title': ['合并利润表', '利润表'],
@@ -68,6 +117,7 @@ class PDFParser:
                         for table in tables:
                             if self._is_main_financial_table(table, stmt_type):
                                 rows = self._clean_table_rows(table, stmt_type, columns is None)
+                                rows = self._normalize_table_shape(rows)
                                 
                                 if not rows:
                                     continue
@@ -77,7 +127,7 @@ class PDFParser:
                                         columns = self._normalize_columns(rows[0], stmt_type)
                                         rows = rows[1:]
                                     else:
-                                        columns = self._generate_default_columns(stmt_type, len(rows[0]))
+                                        columns = self._generate_default_columns(stmt_type, 3)
                                 
                                 filtered_rows = []
                                 for row in rows:
@@ -150,6 +200,9 @@ class PDFParser:
         for pn in range(1, total_pages + 1):
             page = pdf.pages[pn - 1]
             text = page.extract_text() or ''
+            # 「××年度财务报表附注」之后是会计政策，不再当作三大报表
+            if self._is_notes_heading_page(text):
+                break
             tables = page.extract_tables({
                 'vertical_strategy': 'lines',
                 'horizontal_strategy': 'lines',
@@ -228,7 +281,7 @@ class PDFParser:
         for i, st_page in enumerate(sorted_pages):
             stmt_type = positions[st_page]
             end_page = sorted_pages[i + 1] - 1 if i + 1 < len(sorted_pages) else total_pages
-            ranges[stmt_type] = (st_page, end_page)
+            ranges[stmt_type] = (st_page, self._cap_statement_end(stmt_type, st_page, end_page))
         
         return ranges
 
@@ -251,6 +304,8 @@ class PDFParser:
             
             for pn in range(total):
                 text = doc[pn].get_text()
+                if self._is_notes_heading_page(text):
+                    break
                 
                 for stmt_type, keywords in stmt_keywords.items():
                     if found[stmt_type] is not None:
@@ -258,7 +313,11 @@ class PDFParser:
                     for kw in keywords:
                         if kw in text:
                             # 检查是否真的进入了报表页面（而非审计报告引用）
-                            if stmt_type == 'balance_sheet' and ('期末余额' in text or '期末数' in text):
+                            if stmt_type == 'balance_sheet' and (
+                                '期末余额' in text
+                                or '期末数' in text
+                                or '年12月31日' in text
+                            ):
                                 found[stmt_type] = pn + 1
                                 logger.info(f'[pymupdf] 找到{stmt_type}起始页: 第{pn+1}页')
                             elif stmt_type == 'income_statement' and ('营业收入' in text or '营业总收入' in text or '本期金额' in text and '上期金额' in text):
@@ -277,7 +336,10 @@ class PDFParser:
             
             for i, (stmt_type, st_page) in enumerate(sorted_pages):
                 end_page = sorted_pages[i + 1][1] - 1 if i + 1 < len(sorted_pages) else total
-                ranges[stmt_type] = (st_page, end_page)
+                ranges[stmt_type] = (
+                    st_page,
+                    self._cap_statement_end(stmt_type, st_page, end_page),
+                )
                 
         except Exception as e:
             logger.warning(f'pymupdf locate pages failed: {e}')
@@ -343,22 +405,134 @@ class PDFParser:
         
         return False
 
+    def _cap_statement_end(self, stmt_type, start_page, end_page):
+        """Limit how far a statement may run so notes are not ingested."""
+        span = self.MAX_STATEMENT_PAGES.get(stmt_type, 8)
+        return min(end_page, start_page + span - 1)
+
+    @staticmethod
+    def _is_notes_heading_page(text):
+        """True on the 'YYYY年度财务报表附注' cover page that starts accounting policies."""
+        head = (text or '').replace(' ', '')[:400]
+        return '年度财务报表附注' in head
+
     def _is_main_financial_table(self, table, stmt_type):
         """
-        判断是否为主要的财务报表（排除附注小表格）
+        判断是否为本报表的主表（排除上一张表的尾巴、附注小表）
         """
-        if not table or len(table) < 5:
+        # 利润表常在资产负债表同一页以 3～4 行表头表开头，过严会丢掉首页
+        if not table or len(table) < 3:
             return False
-        
-        # 检查前几行是否包含金额数据
+
+        keywords = self._TABLE_KEYWORDS.get(stmt_type)
+        if not keywords:
+            return False
+
+        sample = ' '.join(
+            ' '.join(self._clean_cell(c) for c in row)
+            for row in table[:15]
+        )
+        pos = sum(1 for kw in keywords['positive'] if kw in sample)
+        neg = sum(1 for kw in keywords['negative'] if kw in sample)
+        if pos < 1 or pos <= neg:
+            return False
+
         has_numbers = False
         for row in table[:10]:
             for cell in row:
                 if cell and re.search(r'[\d,]+\.?\d*', str(cell)):
                     has_numbers = True
                     break
-        
+            if has_numbers:
+                break
         return has_numbers
+
+    def _compact_columns(self, rows):
+        """Drop columns that are empty in every row (pdfplumber line artifacts)."""
+        if not rows:
+            return rows
+        width = max(len(row) for row in rows)
+        padded = [row + [''] * (width - len(row)) for row in rows]
+        keep = [
+            i for i in range(width)
+            if any(row[i].strip() for row in padded)
+        ]
+        if not keep:
+            return []
+        return [[row[i] for i in keep] for row in padded]
+
+    def _column_kind(self, values):
+        """Classify a column as empty / note / amount / text."""
+        non_empty = [v.strip() for v in values if v and str(v).strip()]
+        if not non_empty:
+            return 'empty'
+
+        numeric = 0
+        notes = 0
+        for raw in non_empty:
+            compact = re.sub(r'\s+', '', raw)
+            if compact in ('附注', '注释', '注'):
+                notes += 1
+                continue
+            if self._NOTE_VALUE_RE.match(compact):
+                notes += 1
+                continue
+            parsed = self._parse_number(raw)
+            if isinstance(parsed, (int, float)):
+                numeric += 1
+
+        if notes and numeric == 0 and notes >= max(1, len(non_empty) * 0.4):
+            return 'note'
+        if numeric >= max(1, len(non_empty) * 0.25):
+            return 'amount'
+        return 'text'
+
+    def _normalize_table_shape(self, rows):
+        """
+        Collapse sparse pdfplumber columns, drop 附注, keep 项目 + two amounts.
+
+        Typical raw row: ['', '其中：营业成本', '', '五、32', '95,404,953.93', '132,273,384.81']
+        After this:      ['其中：营业成本', '95,404,953.93', '132,273,384.81']
+        """
+        rows = self._compact_columns(rows)
+        if not rows:
+            return []
+
+        width = len(rows[0])
+        kinds = [
+            self._column_kind([row[i] for row in rows])
+            for i in range(width)
+        ]
+        keep = [i for i, kind in enumerate(kinds) if kind != 'note']
+        if keep:
+            rows = [[row[i] for i in keep] for row in rows]
+            kinds = [kinds[i] for i in keep]
+
+        text_idxs = [i for i, kind in enumerate(kinds) if kind == 'text']
+        amount_idxs = [i for i, kind in enumerate(kinds) if kind == 'amount']
+        item_idx = text_idxs[0] if text_idxs else 0
+        leftover = [i for i in range(len(kinds)) if i != item_idx]
+        if len(amount_idxs) >= 2:
+            amt_idxs = amount_idxs[:2]
+        elif len(amount_idxs) == 1:
+            extra = [i for i in leftover if i not in amount_idxs]
+            amt_idxs = amount_idxs + extra[:1]
+        else:
+            amt_idxs = leftover[:2]
+        while len(amt_idxs) < 2:
+            amt_idxs.append(None)
+
+        shaped = []
+        for row in rows:
+            item = row[item_idx] if item_idx < len(row) else ''
+            amounts = [
+                row[i] if i is not None and i < len(row) else ''
+                for i in amt_idxs
+            ]
+            if not item and not any(amounts):
+                continue
+            shaped.append([item, amounts[0], amounts[1]])
+        return shaped
 
     def _is_header_row(self, row, columns):
         """
