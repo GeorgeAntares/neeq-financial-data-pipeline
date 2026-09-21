@@ -23,6 +23,7 @@ All notable changes follow Semantic Versioning and Keep a Changelog.
 
 - 默认 `--source` 改为 `neeq`；巨潮下载改为 `%PDF-` 头校验、`.part` 原子写入、跳过已有文件，导出年份用标题推断的报告年度 / Default source is NEEQ; CNINFO downloads validate PDF headers, write atomically, skip existing files, and use inferred report year
 - 增加 GitHub Actions：`unittest discover`（不安装 torch）/ Add GitHub Actions running unit tests without torch
+- README 拆成英文 `README.md` 与简体中文 `README.zh-CN.md`，内容与当前默认 NEEQ / 解析器 / CI 对齐 / Split docs into English `README.md` and Simplified Chinese `README.zh-CN.md`
 - `.gitignore` 增加 `.trae/`，不提交 IDE 规则目录 / Ignore `.trae/` IDE metadata
 
 ## [v0.1.0] - 2026-08-27 正式版 / Stable Release
