@@ -189,101 +189,56 @@ class PDFParser:
 
     def _find_statement_pages(self, pdf, total_pages):
         """
-        扫描全部页面，定位每张报表的起始页
-        BS和CF用文本+标题检测，IS用表格特征检测
-        :return: {'balance_sheet': (start, end), ...}
+        扫描全部页面，定位每张报表的起始页。
+        按报表类型记页码（同一页可同时是资产负债表尾 + 利润表头）。
         """
-        positions = {}  # {页码: 报表类型}
-        found_types = set()
-        
-        # 第一轮：三大报表用文本检测
-        for pn in range(1, total_pages + 1):
-            page = pdf.pages[pn - 1]
-            text = page.extract_text() or ''
-            # 「××年度财务报表附注」之后是会计政策，不再当作三大报表
-            if self._is_notes_heading_page(text):
-                break
-            tables = page.extract_tables({
-                'vertical_strategy': 'lines',
-                'horizontal_strategy': 'lines',
-            }) or []
-            
-            for stmt_type, markers in self.STATEMENT_MARKERS.items():
-                if stmt_type in found_types:
-                    continue
-                
-                title_match = any(t in text for t in markers['title'])
-                header_match = any(h in text for h in markers['headers'])
-                
-                if title_match and header_match:
-                    positions[pn] = stmt_type
-                    found_types.add(stmt_type)
-                    logger.info(f'找到{stmt_type}起始页: 第{pn}页 (文本匹配)')
-                    continue
-                
-                if title_match and tables:
-                    for table in tables:
-                        if len(table) > 0 and table[0]:
-                            first_row_text = ' '.join(c or '' for c in table[0])
-                            if any(h in first_row_text for h in markers['headers']):
-                                positions[pn] = stmt_type
-                                found_types.add(stmt_type)
-                                logger.info(f'找到{stmt_type}起始页: 第{pn}页 (表格匹配)')
-                                break
-        
-        # 第一轮已找到的报表页码（升序），第二轮备用检测依赖它划定搜索区间
-        sorted_pages = sorted(positions.keys())
+        starts = {}  # {报表类型: 起始页}
 
-        # 第二轮：利润表备用检测（在第一轮没找到时）
-        if 'income_statement' not in found_types and len(sorted_pages) >= 1:
-            # 在有报表的页面附近搜索IS：BS之后到CF之前，或已知报表前后10页
-            if len(sorted_pages) == 1:
-                search_start = max(1, sorted_pages[0] - 5)
-                search_end = min(sorted_pages[0] + 15, total_pages)
-            else:
-                search_start = sorted_pages[0] + 1
-                search_end = sorted_pages[-1] - 1
-            
-            for pn in range(search_start, min(search_end + 1, total_pages + 1)):
-                page = pdf.pages[pn - 1]
-                text = page.extract_text() or ''
-                # 优先用文本匹配（更可靠）
-                if ('合并利润表' in text or '利润表' in text) and \
-                   ('本期金额' in text or '上期金额' in text or '营业收入' in text or '营业总收入' in text):
-                    positions[pn] = 'income_statement'
-                    found_types.add('income_statement')
-                    logger.info(f'找到income_statement起始页: 第{pn}页 (文本匹配-备用)')
+        for pn in range(1, total_pages + 1):
+            text = pdf.pages[pn - 1].extract_text() or ''
+            if self._is_notes_heading_page(text):
+                if starts:
                     break
-                
-                tables = page.extract_tables({
-                    'vertical_strategy': 'lines',
-                    'horizontal_strategy': 'lines',
-                }) or []
-                
-                for table in tables:
-                    if len(table) > 5:
-                        all_text = ' '.join(' '.join(c or '' for c in row) for row in table[:20])
-                        if ('营业收入' in all_text or '营业总收入' in all_text) and \
-                           ('营业成本' in all_text or '利润总额' in all_text or '净利润' in all_text):
-                            # 排除现金流量表（含"经营活动"）
-                            if '经营活动' not in all_text and '投资活动' not in all_text:
-                                positions[pn] = 'income_statement'
-                                found_types.add('income_statement')
-                                logger.info(f'找到income_statement起始页: 第{pn}页 (表格特征-备用)')
-                                break
-                if 'income_statement' in found_types:
+                continue
+
+            for stmt_type in self.STATEMENT_MARKERS:
+                if stmt_type in starts:
+                    continue
+                if self._page_starts_statement(text, stmt_type):
+                    starts[stmt_type] = pn
+                    logger.info(f'找到{stmt_type}起始页: 第{pn}页')
+
+            if len(starts) == 3:
+                break
+
+        # 利润表备用：标题在资产负债表最后一页、营业收入在下一页时
+        if 'income_statement' not in starts and starts:
+            ordered = sorted(starts.values())
+            search_start = ordered[0]
+            search_end = min((ordered[-1] + 8), total_pages)
+            for pn in range(search_start, search_end + 1):
+                text = pdf.pages[pn - 1].extract_text() or ''
+                if self._page_starts_statement(text, 'income_statement'):
+                    starts['income_statement'] = pn
+                    logger.info(f'找到income_statement起始页: 第{pn}页 (备用)')
                     break
-        
-        # 重新排序，确定页码范围
-        # 注意：第二轮可能已向 positions 新增利润表页，此处必须重算，不可复用上面的 sorted_pages
-        sorted_pages = sorted(positions.keys())
-        ranges = {}
-        for i, st_page in enumerate(sorted_pages):
-            stmt_type = positions[st_page]
-            end_page = sorted_pages[i + 1] - 1 if i + 1 < len(sorted_pages) else total_pages
-            ranges[stmt_type] = (st_page, self._cap_statement_end(stmt_type, st_page, end_page))
-        
-        return ranges
+
+        # 资产负债表备用：无「合并」字样、但紧挨利润表之前出现货币资金
+        if 'balance_sheet' not in starts and 'income_statement' in starts:
+            is_start = starts['income_statement']
+            for pn in range(max(1, is_start - 8), is_start):
+                text = pdf.pages[pn - 1].extract_text() or ''
+                if (
+                    '货币资金' in text
+                    and '流动资产' in text
+                    and '资产负债表' in text
+                    and not self._is_audit_or_toc_page(text)
+                ):
+                    starts['balance_sheet'] = pn
+                    logger.info(f'找到balance_sheet起始页: 第{pn}页 (备用)')
+                    break
+
+        return self._ranges_from_starts(starts, total_pages)
 
     def _find_statement_pages_pymupdf(self, pdf_path, total_pages):
         """
@@ -295,51 +250,25 @@ class PDFParser:
             total = min(total_pages, doc.page_count)
             
             found = {'balance_sheet': None, 'income_statement': None, 'cash_flow': None}
-            
-            stmt_keywords = {
-                'balance_sheet': ['合并资产负债表', '资产负债表'],
-                'income_statement': ['合并利润表', '利润表'],
-                'cash_flow': ['合并现金流量表', '现金流量表'],
-            }
-            
+
             for pn in range(total):
                 text = doc[pn].get_text()
                 if self._is_notes_heading_page(text):
-                    break
-                
-                for stmt_type, keywords in stmt_keywords.items():
+                    if any(v is not None for v in found.values()):
+                        break
+                    continue
+
+                for stmt_type in ('balance_sheet', 'income_statement', 'cash_flow'):
                     if found[stmt_type] is not None:
                         continue
-                    for kw in keywords:
-                        if kw in text:
-                            # 检查是否真的进入了报表页面（而非审计报告引用）
-                            if stmt_type == 'balance_sheet' and (
-                                '期末余额' in text
-                                or '期末数' in text
-                                or '年12月31日' in text
-                            ):
-                                found[stmt_type] = pn + 1
-                                logger.info(f'[pymupdf] 找到{stmt_type}起始页: 第{pn+1}页')
-                            elif stmt_type == 'income_statement' and ('营业收入' in text or '营业总收入' in text or '本期金额' in text and '上期金额' in text):
-                                found[stmt_type] = pn + 1
-                                logger.info(f'[pymupdf] 找到{stmt_type}起始页: 第{pn+1}页')
-                            elif stmt_type == 'cash_flow' and ('经营活动' in text):
-                                found[stmt_type] = pn + 1
-                                logger.info(f'[pymupdf] 找到{stmt_type}起始页: 第{pn+1}页')
-                            break
+                    if self._page_starts_statement(text, stmt_type):
+                        found[stmt_type] = pn + 1
+                        logger.info(f'[pymupdf] 找到{stmt_type}起始页: 第{pn+1}页')
             
             doc.close()
             
-            # 构建页码范围
-            found_pages = {k: v for k, v in found.items() if v is not None}
-            sorted_pages = sorted(found_pages.items(), key=lambda x: x[1])
-            
-            for i, (stmt_type, st_page) in enumerate(sorted_pages):
-                end_page = sorted_pages[i + 1][1] - 1 if i + 1 < len(sorted_pages) else total
-                ranges[stmt_type] = (
-                    st_page,
-                    self._cap_statement_end(stmt_type, st_page, end_page),
-                )
+            starts = {k: v for k, v in found.items() if v is not None}
+            ranges = self._ranges_from_starts(starts, total)
                 
         except Exception as e:
             logger.warning(f'pymupdf locate pages failed: {e}')
@@ -410,11 +339,95 @@ class PDFParser:
         span = self.MAX_STATEMENT_PAGES.get(stmt_type, 8)
         return min(end_page, start_page + span - 1)
 
+    def _ranges_from_starts(self, starts, total_pages):
+        """Build inclusive page ranges. Same-page types each keep at least that page."""
+        ranges = {}
+        ordered = sorted(starts.items(), key=lambda item: (item[1], item[0]))
+        for i, (stmt_type, start_page) in enumerate(ordered):
+            if i + 1 < len(ordered):
+                next_start = ordered[i + 1][1]
+                end_page = next_start - 1 if next_start > start_page else start_page
+            else:
+                end_page = total_pages
+            ranges[stmt_type] = (
+                start_page,
+                self._cap_statement_end(stmt_type, start_page, end_page),
+            )
+        return ranges
+
+    _NOTES_COVER_RE = re.compile(r'(?:19|20)\d{2}\s*年度财务报表附注')
+
+    @classmethod
+    def _is_notes_heading_page(cls, text):
+        """True only on the accounting-policy cover, not MD&A or TOC."""
+        raw = text or ''
+        compact = re.sub(r'\s+', '', raw[:800])
+        if not re.search(r'(?:19|20)\d{2}年度财务报表附注', compact):
+            return False
+        head = raw[:900]
+        return (
+            '公司基本情况' in head
+            or '除特别说明外' in head
+            or '企业注册地' in head
+        )
+
     @staticmethod
-    def _is_notes_heading_page(text):
-        """True on the 'YYYY年度财务报表附注' cover page that starts accounting policies."""
-        head = (text or '').replace(' ', '')[:400]
-        return '年度财务报表附注' in head
+    def _is_audit_or_toc_page(text):
+        """Audit opinion / section cover, not the statement itself."""
+        if '是否审计' in text and '无保留意见' in text and '货币资金' not in text:
+            return True
+        if '关键审计事项' in text and '单位：元' not in text:
+            return True
+        head = (text or '')[:120]
+        if '目 录' in head or head.strip().startswith('目录'):
+            return True
+        return False
+
+    def _page_starts_statement(self, text, stmt_type):
+        """
+        Text-layer start-page detector.
+
+        Rejects MD&A (期末余额较上年)、审计报告封面、目录。
+        利润表/现金流量表允许本页只有标题、数字在下一页。
+        """
+        if not text or self._is_audit_or_toc_page(text):
+            return False
+
+        if stmt_type == 'balance_sheet':
+            if '较上年期末' in text and '合并资产负债表' not in text:
+                return False
+            has_title = (
+                '合并资产负债表' in text
+                or ('(一)' in text and '资产负债表' in text)
+            )
+            has_body = '货币资金' in text and (
+                '流动资产' in text or '年12月31日' in text
+            )
+            return has_title and has_body
+
+        if stmt_type == 'income_statement':
+            if '合并利润表' in text:
+                if '关键审计事项' in text:
+                    return '一、营业总收入' in text or '一、营业收入' in text
+                return True
+            if '一、营业总收入' in text or '一、营业收入' in text:
+                return '合并现金流量表' not in text
+            return False
+
+        if stmt_type == 'cash_flow':
+            if '合并现金流量表' in text:
+                if '关键审计事项' in text:
+                    return '销售商品、提供劳务收到的现金' in text
+                return True
+            if (
+                '现金流量表' in text
+                and '销售商品、提供劳务收到的现金' in text
+                and '关键审计事项' not in text
+            ):
+                return True
+            return False
+
+        return False
 
     def _is_main_financial_table(self, table, stmt_type):
         """
