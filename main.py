@@ -36,9 +36,9 @@ def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description='中小微上市公司财报爬虫')
     
-    parser.add_argument('--source', type=str, default='cninfo',
+    parser.add_argument('--source', type=str, default='neeq',
                         choices=['cninfo', 'neeq'],
-                        help='数据源: cninfo(巨潮资讯网) 或 neeq(新三板)')
+                        help='数据源: neeq(新三板，默认) 或 cninfo(巨潮资讯网)')
     parser.add_argument('--plate', type=str, default='szcy', 
                         help=f'板块代码，可选: {", ".join(PLATE_CODES.keys())}')
     parser.add_argument('--category', type=str, default='年报',
@@ -463,7 +463,8 @@ def process_announcements(announcements, args, api, parser, exporter, logger, so
             logger.info(f'非年度报告正文，跳过')
             continue
         
-        pdf_path = exporter.get_pdf_save_path(stock_code, stock_name, args.year, title)
+        report_year = infer_report_year(title) or args.year
+        pdf_path = exporter.get_pdf_save_path(stock_code, stock_name, report_year, title)
         if source == 'neeq':
             from neeq_crawler import download_pdf
             if not download_pdf(adjunct_url, pdf_path):
@@ -475,7 +476,7 @@ def process_announcements(announcements, args, api, parser, exporter, logger, so
         logger.info('开始解析PDF...')
         reports = parser.parse_pdf(pdf_path)
         
-        exporter.export_all_reports(reports, stock_code, stock_name, args.year)
+        exporter.export_all_reports(reports, stock_code, stock_name, report_year)
         
         parsed_count = sum(1 for v in reports.values() if v is not None)
         logger.info(f'解析完成，成功提取 {parsed_count}/3 张报表')
