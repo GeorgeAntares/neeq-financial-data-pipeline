@@ -1,8 +1,13 @@
-import requests
-import time
 import logging
+import time
 from datetime import datetime
-from config import CNINFO_API, REQUEST_INTERVAL, MAX_RETRIES, PLATE_COLUMN
+from pathlib import Path
+from urllib.parse import urljoin
+
+import requests
+
+from config import CNINFO_API, MAX_RETRIES, PLATE_COLUMN, REQUEST_INTERVAL
+from neeq_crawler import is_valid_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +54,11 @@ class CNInfoAPI:
                     'isHLtitle': 'true',
                 }
                 
-                response = self.session.post(CNINFO_API['search_url'], data=data)
+                response = self.session.post(
+                    CNINFO_API['search_url'],
+                    data=data,
+                    timeout=(10, 30),
+                )
                 response.raise_for_status()
                 
                 result = response.json()
@@ -89,30 +98,49 @@ class CNInfoAPI:
 
     def download_pdf(self, adjunct_url, save_path):
         """
-        下载PDF文件
-        :param adjunct_url: PDF附件相对路径
-        :param save_path: 保存路径
-        :return: 是否成功
+        下载PDF文件：跳过已有有效文件，.part 原子写入，校验 %PDF- 头。
         """
-        pdf_url = CNINFO_API['pdf_base_url'] + adjunct_url
-        
+        if not adjunct_url:
+            return False
+
+        pdf_url = (
+            adjunct_url
+            if str(adjunct_url).startswith(('http://', 'https://'))
+            else urljoin(CNINFO_API['pdf_base_url'], str(adjunct_url).lstrip('/'))
+        )
+        path = Path(save_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if is_valid_pdf(path):
+            logger.info('PDF已存在，跳过下载: %s', path.name)
+            return True
+
+        part_path = path.with_suffix(path.suffix + '.part')
         for attempt in range(MAX_RETRIES):
             try:
-                response = self.session.get(pdf_url, timeout=30)
+                response = self.session.get(pdf_url, timeout=(10, 120), stream=True)
                 response.raise_for_status()
-                
-                with open(save_path, 'wb') as f:
-                    f.write(response.content)
-                
-                logger.info(f'PDF下载成功: {save_path}')
+                with part_path.open('wb') as file:
+                    for chunk in response.iter_content(chunk_size=64 * 1024):
+                        if chunk:
+                            file.write(chunk)
+                if not is_valid_pdf(part_path):
+                    raise ValueError('响应内容不是有效的 PDF 文件')
+                part_path.replace(path)
+                logger.info('PDF下载成功: %s', path.name)
                 return True
-                
-            except Exception as e:
-                logger.warning(f'PDF下载失败(第{attempt+1}次): {pdf_url}, 错误: {e}')
+            except Exception as exc:
+                logger.warning(
+                    'PDF下载失败(第%s次): %s, 错误: %s',
+                    attempt + 1,
+                    pdf_url,
+                    exc,
+                )
+                if part_path.exists():
+                    part_path.unlink()
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(REQUEST_INTERVAL * (attempt + 1))
-        
-        logger.error(f'PDF下载失败，已重试{MAX_RETRIES}次: {pdf_url}')
+
+        logger.error('PDF下载失败，已重试%s次: %s', MAX_RETRIES, pdf_url)
         return False
 
     def close(self):

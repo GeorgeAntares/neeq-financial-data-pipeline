@@ -68,8 +68,9 @@ pip install -r requirements.txt
 ### ① 搜索年报并下载 PDF / Search & Download Annual Reports
 
 ```bash
+# 默认数据源为新三板 NEEQ / Default source is NEEQ
 # 按公告发布日期查询并下载，不解析 CSV / Query by announcement date, skip CSV parsing
-python main.py --source neeq --start-date 2025-01-01 --end-date 2025-12-31 --skip-parse
+python main.py --start-date 2025-01-01 --end-date 2025-12-31 --skip-parse
 
 # 仅查询公告并写入 SQLite，不下载 PDF / Query announcements into SQLite only, skip download
 python main.py --source neeq --year 2025 --skip-download
@@ -188,7 +189,7 @@ pending  ──→  downloading  ──→  downloaded
 
 | 参数 / Argument | 说明 / Description | 默认值 / Default |
 |------|------|--------|
-| `--source` | 数据源：`cninfo`（巨潮资讯网）或 `neeq`（新三板）/ Data source: `cninfo` or `neeq` | `cninfo` |
+| `--source` | 数据源：`neeq`（新三板）或 `cninfo`（巨潮资讯网）/ Data source: `neeq` or `cninfo` | `neeq` |
 | `--year` | 公告发布日期年份，不等同于财报所属年份 / Announcement year, not necessarily the report year | 去年 / Last year |
 | `--start-date` | 公告起始日期 `YYYY-MM-DD` / Start date | 无 / None |
 | `--end-date` | 公告截止日期 `YYYY-MM-DD` / End date | 无 / None |
