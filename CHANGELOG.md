@@ -7,6 +7,7 @@ All notable changes follow Semantic Versioning and Keep a Changelog.
 
 ### Fixed / 修复
 
+- 文本层起始页会命中管理层分析 / 审计封面，利润表标题与资产负债表尾巴同页时还会定晚一页；现要求「合并资产负债表+货币资金」，利润表允许标题页，附注封面误判不再中断扫描 / Start-page detector skips MD&A and audit covers; income statement may start on a title-only page
 - 解析器将「附注」列（注释31 / 五、32）截成金额列，利润表页还会吞进资产负债表尾巴；现改为压缩空列、丢弃附注、按报表类型认主表 / Drop footnote columns and leftover balance-sheet tables instead of treating them as amounts
 - 现金流量表页范围会扫到财务报表附注；现每张表最多 6–8 页，并在「年度财务报表附注」处停止定位 / Cap statement page spans and stop at the notes heading
 - 资产负债表表头常用「2025年12月31日」而非「期末余额」，导致主表定位失败、误命中附注页 / Recognise year-end date headers when locating the balance sheet

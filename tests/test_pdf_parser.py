@@ -88,6 +88,56 @@ class PdfParserTableShapeTest(unittest.TestCase):
                 '详见财务报表附注。产品收入的确认通常仅包括转让商品。'
             )
         )
+        self.assertFalse(
+            self.parser._is_notes_heading_page(
+                '山东星科智能科技股份有限公司 2025年年度报告\n'
+                '为 1,168.11 万元，占销售收入比重提升至 14.41%。'
+            )
+        )
+
+    def test_page_start_rejects_mda_and_audit_cover(self):
+        mda = (
+            '8、应付职工薪酬本期期末余额较上年期末余额增加 31.60%，'
+            '系本期现金流不充足。资产负债表项目变动分析如下。'
+        )
+        audit = (
+            '第七节 财务会计报告\n一、 审计报告\n是否审计 是\n'
+            '审计意见 无保留意见\n资产负债表 利润表 现金流量表'
+        )
+        real_bs = (
+            '二、 财务报表 (一) 合并资产负债表 单位：元\n'
+            '项目 附注 2025年12月31日 2024年12月31日\n'
+            '流动资产：\n货币资金 五、1 704,347.95'
+        )
+        is_title_only = (
+            '合同负债 4,390,946.30\n(二) 合并利润表 单位：元\n项目 附注'
+        )
+        real_cf = (
+            '(五) 合并现金流量表 单位：元\n'
+            '一、经营活动产生的现金流量：\n'
+            '销售商品、提供劳务收到的现金 122,566,267.57'
+        )
+        self.assertFalse(self.parser._page_starts_statement(mda, 'balance_sheet'))
+        self.assertFalse(self.parser._page_starts_statement(audit, 'balance_sheet'))
+        self.assertTrue(self.parser._page_starts_statement(real_bs, 'balance_sheet'))
+        self.assertTrue(self.parser._page_starts_statement(is_title_only, 'income_statement'))
+        self.assertTrue(self.parser._page_starts_statement(real_cf, 'cash_flow'))
+        audit_mentions_is = (
+            '三、关键审计事项\n我们确定下列事项是需要在审计报告中沟通的关键审计事项。\n'
+            '合并利润表中营业收入的确认'
+        )
+        self.assertFalse(
+            self.parser._page_starts_statement(audit_mentions_is, 'income_statement')
+        )
+
+    def test_same_page_types_keep_both_ranges(self):
+        ranges = self.parser._ranges_from_starts(
+            {'balance_sheet': 30, 'income_statement': 30, 'cash_flow': 34},
+            total_pages=80,
+        )
+        self.assertEqual(ranges['balance_sheet'][0], 30)
+        self.assertGreaterEqual(ranges['balance_sheet'][1], 30)
+        self.assertEqual(ranges['income_statement'], (30, 33))
 
 
 if __name__ == '__main__':
