@@ -21,6 +21,9 @@ All notable changes follow Semantic Versioning and Keep a Changelog.
 
 ### Changed / 变更
 
+- 分析 / ML / DL / SHAP 脚本加上 `if __name__ == '__main__'`，现金流特征抽到 `cashflow_features.py` / Analysis scripts no longer run on import; shared cash-flow features live in `cashflow_features.py`
+- DL：去掉写死的 `C:\\torch`；StandardScaler 只在训练集 fit；early stopping 用训练子集验证，不再盯测试集 / Drop hardcoded `C:\\torch`; scaler fits on train; early stopping uses a val split, not the test set
+- `reexport_csvs.py` 支持 `--limit` / Support `--limit` for sampled re-exports
 - 默认 `--source` 改为 `neeq`；巨潮下载改为 `%PDF-` 头校验、`.part` 原子写入、跳过已有文件，导出年份用标题推断的报告年度 / Default source is NEEQ; CNINFO downloads validate PDF headers, write atomically, skip existing files, and use inferred report year
 - 增加 GitHub Actions：`unittest discover`（不安装 torch）/ Add GitHub Actions running unit tests without torch
 - README 拆成英文 `README.md` 与简体中文 `README.zh-CN.md`，内容与当前默认 NEEQ / 解析器 / CI 对齐 / Split docs into English `README.md` and Simplified Chinese `README.zh-CN.md`

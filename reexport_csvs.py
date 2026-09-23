@@ -3,12 +3,17 @@ Re-export CSVs from on-disk annual-report PDFs with the current parser.
 
 Skips 半年报 / 已取消 / 摘要 / 季报. Honors STOP.txt. Resumes via
 output/analysis/reexport_done.txt.
+
+  python reexport_csvs.py --limit 150
 """
+import argparse
 import json
 import logging
 import os
 import time
 from datetime import datetime
+
+import pandas as pd
 
 from config import OUTPUT_DIR, STOP_FILE
 from data_exporter import DataExporter
@@ -110,7 +115,25 @@ def stop_requested():
     return os.path.exists(STOP_FILE)
 
 
-def main():
+def statement_has_numeric(df, keywords):
+    if df is None or getattr(df, 'empty', True) or df.shape[1] < 2:
+        return False
+    items = df.iloc[:, 0].astype(str)
+    for keyword in keywords:
+        hit = items.str.contains(keyword, na=False)
+        if not hit.any():
+            continue
+        vals = pd.to_numeric(df.loc[hit].iloc[:, 1], errors='coerce')
+        if vals.notna().any():
+            return True
+    return False
+
+
+def main(argv=None):
+    args = argparse.ArgumentParser(description='Re-export CSVs from annual-report PDFs')
+    args.add_argument('--limit', type=int, default=0, help='Max PDFs this run; 0 = all pending')
+    opts = args.parse_args(argv)
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s %(levelname)s %(message)s',
@@ -124,7 +147,14 @@ def main():
 
     done = load_done()
     pending = [p for p in keep if os.path.abspath(p) not in done and p not in done]
-    logger.info('already done %s pending %s', len(keep) - len(pending), len(pending))
+    if opts.limit and opts.limit > 0:
+        pending = pending[: opts.limit]
+    logger.info(
+        'already done %s this-run %s (limit %s)',
+        len(keep) - len([p for p in keep if os.path.abspath(p) not in done and p not in done]),
+        len(pending),
+        opts.limit or 'none',
+    )
 
     parser = PDFParser()
     exporter = DataExporter()
@@ -164,9 +194,15 @@ def main():
                 code, cname, year = pdf_meta(path)
                 exporter.export_all_reports(reports, code, cname, year)
                 stats['parsed'] += 1
-                bs = reports.get('balance_sheet') is not None
-                ins = reports.get('income_statement') is not None
-                cf = reports.get('cash_flow') is not None
+                bs = statement_has_numeric(
+                    reports.get('balance_sheet'), ['货币资金', '资产总计']
+                )
+                ins = statement_has_numeric(
+                    reports.get('income_statement'), ['营业总收入', '营业收入']
+                )
+                cf = statement_has_numeric(
+                    reports.get('cash_flow'), ['经营活动产生的现金流量净额']
+                )
                 rec.update({'ok_bs': bs, 'ok_is': ins, 'ok_cf': cf})
                 stats['ok_bs'] += int(bs)
                 stats['ok_is'] += int(ins)
@@ -198,7 +234,10 @@ def main():
         with open(summary_path, 'w', encoding='utf-8') as fh:
             fh.write('\n'.join(lines) + '\n')
         print('\n'.join(lines))
-        if stats['stopped'] or remaining:
+        if stats['stopped']:
+            write_status('STOPPED')
+            return 2
+        if remaining and not opts.limit:
             write_status('STOPPED')
             return 2
         write_status('DONE')
