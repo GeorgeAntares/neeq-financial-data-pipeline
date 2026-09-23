@@ -15,8 +15,6 @@ NEEQ Financial Data Collection & Analysis Project — Data Analysis Module
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
 import glob
 import os
 import re
@@ -28,11 +26,15 @@ warnings.filterwarnings('ignore')
 # 配置 / Configuration
 # ============================================================
 
-matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
-matplotlib.rcParams['axes.unicode_minus'] = False
-
 CSV_DIR = os.path.join(os.path.dirname(__file__), 'output', 'csv')
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), 'output', 'analysis')
+
+# 低于该金额的「营收」多半是附注编号/错列（1.0、17.4），不进入描述统计
+MIN_REVENUE_CNY = 100_000
+# 毛利率均值和直方图用截尾，避免 -4000% 拉垮均值；中位数仍用原始值
+GROSS_MARGIN_CLIP = (-50.0, 80.0)
+CHART_NAME = 'financial_analysis_clean.png'
+SUMMARY_NAME = 'summary_statistics_clean.csv'
 
 # ============================================================
 # 1. 数据加载 / Data Loading
@@ -146,7 +148,37 @@ def pick_primary_row(df, keywords, value_col='current'):
     return primary.drop(columns=['_exact', '_len'])
 
 
-def main():
+def pick_operating_cost(income_df):
+    """Prefer 营业成本 (COGS); fill with 营业总成本 only when COGS is missing."""
+    cogs = pick_primary_row(income_df, ['营业成本'])
+    fallback = pick_primary_row(income_df, ['营业总成本'])
+    if cogs.empty:
+        return fallback
+    if fallback.empty:
+        return cogs
+    missing = set(fallback['stock_code']) - set(cogs['stock_code'])
+    extra = fallback[fallback['stock_code'].isin(missing)]
+    return pd.concat([cogs, extra], ignore_index=True)
+
+
+def filter_plausible_revenue(revenue_df, min_revenue=MIN_REVENUE_CNY):
+    """Drop tiny amounts that are usually footnote ids, not revenue."""
+    if revenue_df.empty:
+        return revenue_df, 0
+    kept = revenue_df[revenue_df['revenue'] >= min_revenue].copy()
+    return kept, len(revenue_df) - len(kept)
+
+
+def clip_gross_margin(series, bounds=GROSS_MARGIN_CLIP):
+    return series.clip(lower=bounds[0], upper=bounds[1])
+
+
+def main(csv_dir=None, output_dir=None):
+    global CSV_DIR, OUTPUT_DIR
+    if csv_dir:
+        CSV_DIR = csv_dir
+    if output_dir:
+        OUTPUT_DIR = output_dir
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     print("=" * 60)
     print("NEEQ 财报数据分析 / NEEQ Financial Data Analysis")
@@ -173,6 +205,13 @@ def main():
     revenue_df = pick_primary_row(income_df, ['营业总收入', '营业收入'])
     revenue_df = revenue_df.rename(columns={'value': 'revenue'})
     revenue_df = revenue_df[revenue_df['revenue'] > 0]
+    revenue_df, n_dropped_rev = filter_plausible_revenue(revenue_df)
+    if n_dropped_rev:
+        print(f"  清洗：去掉营收 < {MIN_REVENUE_CNY:,.0f} 元的 {n_dropped_rev} 家（多为附注编号误入金额列）")
+
+    if revenue_df.empty:
+        print('  无有效营收样本，结束。')
+        return
 
     print(f"\n  有效营收数据企业 Companies with valid revenue: {len(revenue_df)}")
     print(f"  （利润表覆盖企业 Income statement coverage: {income_df['stock_code'].nunique()} 家，"
@@ -205,8 +244,7 @@ def main():
 
     print("\n[4/6] 盈利能力分析 / Profitability Analysis...")
 
-    cost_df = pick_primary_row(income_df, ['营业总成本', '营业成本'])
-    cost_df = cost_df.rename(columns={'value': 'cost'})
+    cost_df = pick_operating_cost(income_df).rename(columns={'value': 'cost'})
 
     # 合并营收和成本 / Merge revenue and cost
     profit_df = revenue_df[['stock_code', 'company_name', 'revenue']].merge(
@@ -214,16 +252,25 @@ def main():
     )
     profit_df['gross_profit'] = profit_df['revenue'] - profit_df['cost']
     profit_df['gross_margin'] = (profit_df['gross_profit'] / profit_df['revenue']) * 100
+    profit_df['gross_margin_clipped'] = clip_gross_margin(profit_df['gross_margin'])
 
     print(f"  可计算毛利率的企业 Companies with gross margin: {len(profit_df)}")
-    print(f"  毛利率均值 Mean gross margin: {profit_df['gross_margin'].mean():.2f}%")
+    if profit_df.empty:
+        print('  无毛利率样本。')
+        return
     print(f"  毛利率中位数 Median gross margin: {profit_df['gross_margin'].median():.2f}%")
+    print(
+        f"  毛利率均值（截尾 {GROSS_MARGIN_CLIP[0]:.0f}%～{GROSS_MARGIN_CLIP[1]:.0f}%）"
+        f" Clipped mean: {profit_df['gross_margin_clipped'].mean():.2f}%"
+    )
+    print(f"  毛利率原始均值 Raw mean (含极端值): {profit_df['gross_margin'].mean():.2f}%")
 
     # 盈亏分析 / Profit/Loss analysis
     profitable = profit_df[profit_df['gross_profit'] > 0]
     loss_making = profit_df[profit_df['gross_profit'] <= 0]
-    print(f"\n  盈利企业 Profitable: {len(profitable)} ({len(profitable)/len(profit_df)*100:.1f}%)")
-    print(f"  亏损企业 Loss-making: {len(loss_making)} ({len(loss_making)/len(profit_df)*100:.1f}%)")
+    n_profit = max(len(profit_df), 1)
+    print(f"\n  盈利企业 Profitable: {len(profitable)} ({len(profitable)/n_profit*100:.1f}%)")
+    print(f"  亏损企业 Loss-making: {len(loss_making)} ({len(loss_making)/n_profit*100:.1f}%)")
 
     # 毛利率分布 / Gross margin distribution
     margin_bins = [-float('inf'), 0, 10, 20, 30, 50, float('inf')]
@@ -252,14 +299,22 @@ def main():
 
     positive_ocf = operating_cf[operating_cf['ocf'] > 0]
     negative_ocf = operating_cf[operating_cf['ocf'] <= 0]
-    print(f"\n  正现金流 Positive OCF: {len(positive_ocf)} ({len(positive_ocf)/len(operating_cf)*100:.1f}%)")
-    print(f"  负现金流 Negative OCF: {len(negative_ocf)} ({len(negative_ocf)/len(operating_cf)*100:.1f}%)")
+    n_ocf = max(len(operating_cf), 1)
+    print(f"\n  正现金流 Positive OCF: {len(positive_ocf)} ({len(positive_ocf)/n_ocf*100:.1f}%)")
+    print(f"  负现金流 Negative OCF: {len(negative_ocf)} ({len(negative_ocf)/n_ocf*100:.1f}%)")
 
     # ============================================================
     # 5. 可视化 / Visualization
     # ============================================================
 
     print("\n[6/6] 生成图表 / Generating charts...")
+
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    matplotlib.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+    matplotlib.rcParams['axes.unicode_minus'] = False
 
     # 图1: 营收分布直方图 / Revenue distribution histogram
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -275,7 +330,7 @@ def main():
 
     # 图2: 毛利率分布 / Gross margin distribution
     ax2 = axes[0, 1]
-    margins = profit_df['gross_margin'][(profit_df['gross_margin'] > -100) & (profit_df['gross_margin'] < 200)]
+    margins = profit_df['gross_margin_clipped']
     ax2.hist(margins, bins=30, color='coral', edgecolor='white', alpha=0.8)
     ax2.axvline(0, color='red', linestyle='--', linewidth=1, label='盈亏平衡 Break-even')
     ax2.set_xlabel('毛利率 (%) / Gross Margin (%)', fontsize=10)
@@ -304,8 +359,12 @@ def main():
                  str(val), ha='center', va='bottom', fontsize=11, fontweight='bold')
 
     plt.tight_layout()
-    plt.savefig(os.path.join(OUTPUT_DIR, 'financial_analysis.png'), dpi=150, bbox_inches='tight')
-    print(f"  图表已保存 Chart saved: output/analysis/financial_analysis.png")
+    chart_path = os.path.join(OUTPUT_DIR, CHART_NAME)
+    if os.path.exists(chart_path):
+        os.remove(chart_path)
+    plt.savefig(chart_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  图表已保存 Chart saved: output/analysis/{CHART_NAME}")
 
     # ============================================================
     # 6. 汇总统计 / Summary Statistics
@@ -320,7 +379,7 @@ def main():
             'OCF有效样本 Companies with Valid OCF',
             '营收均值 Mean Revenue (CNY)',
             '营收中位数 Median Revenue (CNY)',
-            '毛利率均值 Mean Gross Margin (%)',
+            '毛利率均值（截尾）Clipped Mean Gross Margin (%)',
             '正现金流企业 Positive OCF (%)',
             '营收 Top 1 公司 Top 1 Revenue Company',
         ],
@@ -332,14 +391,20 @@ def main():
             len(operating_cf),
             f"{revenue_df['revenue'].mean():,.0f}",
             f"{revenue_df['revenue'].median():,.0f}",
-            f"{profit_df['gross_margin'].mean():.2f}%",
+            f"{profit_df['gross_margin_clipped'].mean():.2f}%",
             f"{len(positive_ocf) / max(len(operating_cf), 1) * 100:.1f}%",
-            f"{top20.iloc[0]['company_name']} ({top20.iloc[0]['revenue'] / 1e8:.2f}亿)",
+            (
+                f"{top20.iloc[0]['company_name']} ({top20.iloc[0]['revenue'] / 1e8:.2f}亿)"
+                if len(top20) else ''
+            ),
         ]
     })
 
-    summary.to_csv(os.path.join(OUTPUT_DIR, 'summary_statistics.csv'), index=False, encoding='utf-8-sig')
-    print(f"  汇总统计已保存 Summary saved: output/analysis/summary_statistics.csv")
+    summary_path = os.path.join(OUTPUT_DIR, SUMMARY_NAME)
+    if os.path.exists(summary_path):
+        os.remove(summary_path)
+    summary.to_csv(summary_path, index=False, encoding='utf-8-sig')
+    print(f"  汇总统计已保存 Summary saved: output/analysis/{SUMMARY_NAME}")
 
     print("\n" + "=" * 60)
     print("分析完成 / Analysis Complete")
@@ -348,4 +413,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description='NEEQ financial descriptive stats')
+    parser.add_argument('--csv-dir', default=None, help='CSV folder (default output/csv)')
+    parser.add_argument('--output-dir', default=None, help='Chart/summary folder')
+    args = parser.parse_args()
+    main(csv_dir=args.csv_dir, output_dir=args.output_dir)

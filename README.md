@@ -112,12 +112,24 @@ On a 36-PDF stratified sample after the locator fix: **100%** had at least one u
 
 ```bash
 python financial_analysis.py    # descriptive stats + charts
+python financial_analysis.py --csv-dir output/analysis/_csv_255   # subset folder
 python ml_financial_health.py   # Random Forest
 python ml_evaluation.py         # 5-fold stratified CV
 python shap_analysis.py         # SHAP
 python dl_financial_health.py   # PyTorch MLP (optional)
 python csv_to_pdf.py            # HTML preview of CSVs
 ```
+
+`financial_analysis.py` cleans before it summarises:
+
+- drop revenue below **100,000 CNY** (footnote ids such as `1.0` / `17.4` often land in the amount column)
+- prefer **营业成本** (COGS) over **营业总成本** (which includes period expenses)
+- clip gross margin to **[-50%, 80%]** for the mean and histogram; the median stays on raw values
+
+Outputs (gitignored under `output/analysis/`):
+
+- `financial_analysis_clean.png` — charts (new file each run; not the old `financial_analysis.png`)
+- `summary_statistics_clean.csv` — coverage, medians, clipped means
 
 The “financial health” label is a **cash-flow heuristic**: operating cash flow > 0 **and** net increase in cash > 0. Features are cash-flow line items. 5-fold CV on 542 firms: accuracy 0.609 ± 0.032, **ROC-AUC 0.615 ± 0.040**. Treat this as an experiment, not a credit score.
 

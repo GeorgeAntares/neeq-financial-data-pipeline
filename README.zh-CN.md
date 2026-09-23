@@ -112,12 +112,24 @@ pdfplumber（文本层）→ PyMuPDF（备用文本）→ RapidOCR（页面截�
 
 ```bash
 python financial_analysis.py    # 描述统计与图
+python financial_analysis.py --csv-dir output/analysis/_csv_255   # 指定子集目录
 python ml_financial_health.py   # 随机森林
 python ml_evaluation.py         # 5 折分层交叉验证
 python shap_analysis.py         # SHAP
 python dl_financial_health.py   # PyTorch MLP（可选）
 python csv_to_pdf.py            # CSV 的 HTML 预览
 ```
+
+`financial_analysis.py` 先清洗再汇总：
+
+- 去掉营收低于 **10 万元** 的样本（`1.0`、`17.4` 这类多半是附注编号进了金额列）
+- 成本优先用 **营业成本**，没有时才用含期间费用的 **营业总成本**
+- 毛利率均值和直方图截到 **[-50%, 80%]**，中位数仍用原始值
+
+输出在 `output/analysis/`（已 gitignore）：
+
+- `financial_analysis_clean.png` — 图（每次新写文件；不要和旧的 `financial_analysis.png` 搞混）
+- `summary_statistics_clean.csv` — 覆盖率、中位数、截尾均值
 
 「财务健康」标签是**现金流启发式**：经营现金流 > 0 **且** 现金净增加额 > 0。特征是现金流科目。542 家企业 5 折 CV：准确率 0.609 ± 0.032，**ROC-AUC 0.615 ± 0.040**。当作实验即可，不是信用评级。
 
