@@ -21,6 +21,7 @@ All notable changes follow Semantic Versioning and Keep a Changelog.
 
 ### Changed / 变更
 
+- `financial_analysis.py` 清洗过小营收、优先营业成本、毛利率截尾；图输出为 `financial_analysis_clean.png` / Descriptive stats drop tiny revenue, prefer COGS, clip gross-margin mean; chart is `financial_analysis_clean.png`
 - 分析 / ML / DL / SHAP 脚本加上 `if __name__ == '__main__'`，现金流特征抽到 `cashflow_features.py` / Analysis scripts no longer run on import; shared cash-flow features live in `cashflow_features.py`
 - DL：去掉写死的 `C:\\torch`；StandardScaler 只在训练集 fit；early stopping 用训练子集验证，不再盯测试集 / Drop hardcoded `C:\\torch`; scaler fits on train; early stopping uses a val split, not the test set
 - `reexport_csvs.py` 支持 `--limit` / Support `--limit` for sampled re-exports
