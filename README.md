@@ -10,7 +10,7 @@
 <p align="center"><strong>English</strong> | <a href="README.zh-CN.md">简体中文</a></p>
 
 <p align="center">
-Crawl NEEQ (and optionally CNINFO) annual-report PDFs, parse the three primary financial statements, export CSV, and run analysis / ML experiments.
+Crawl NEEQ (and optionally CNINFO) annual-report PDFs, parse the three primary financial statements, export CSV, and run company-level financial analysis.
 </p>
 
 ## Features
@@ -21,7 +21,7 @@ Crawl NEEQ (and optionally CNINFO) annual-report PDFs, parse the three primary f
 - Three-tier PDF parser: pdfplumber → PyMuPDF → RapidOCR
 - Text-layer start-page detection (skip MD&A / audit covers; drop footnote columns)
 - Export consolidated balance sheet, income statement, and cash-flow statement as CSV
-- Optional analysis, Random Forest / MLP experiments, and SHAP plots
+- Company-level ratios, three-group industry portraits, DuPont/PCA, and a cash-gap classifier (profit>0 and OCF<0)
 
 Default data source is **NEEQ**. Pass `--source cninfo` for the CNINFO (巨潮) path.
 
@@ -110,36 +110,33 @@ On a 36-PDF stratified sample after the locator fix: **100%** had at least one u
 
 ## Analysis and models
 
+Full write-up: [`ANALYSIS_REPORT.md`](ANALYSIS_REPORT.md). Metric formulas: [`company_metrics_dictionary.md`](company_metrics_dictionary.md).
+
+On the current-parser ~255 CSV set (first consolidated block only, revenue ≥ 100,000 CNY):
+
+- **195** firms. Median revenue 164 million CNY, gross margin 25.7%, AR/revenue 31.7%, inventory/revenue 22.9%.
+- Industry folders collapse to manufacturing (90) / software-IT (26) / other (79). Software AR/revenue is higher (49% vs 29%); software gross margin is higher and OCF is jumpy; “profit>0 and OCF<0” is 8.5% / 0% / 17%.
+- DuPont identity holds on 104 firms (max gap 3.6e-15). ROE tracks net margin (Spearman 0.72). SVD PCA: PC1 scale 34%, PC2 leverage 20%, PC3 cash 14%.
+- Cash-gap classifier (12 positives / 109): BS/IS ratios only — no OCF items, no net margin/ROE. Logit 5-fold ROC **0.52 ± 0.11**, PR-AUC 0.19 vs an 11% baseline. Random Forest OOF recall is 0 at the 0.5 threshold.
+
 ```bash
-python financial_analysis.py    # descriptive stats + charts
-python financial_analysis.py --csv-dir output/analysis/_csv_255   # subset folder
-python company_metrics.py       # company-level metrics wide table (default: _csv_255)
-python industry_portrait.py     # manufacturing / software / other portraits
-python dupont_pca.py            # DuPont identity, Spearman matrix, SVD PCA
-python cash_gap_model.py        # RF vs logit: profit>0 but OCF<0
-python ml_financial_health.py   # Random Forest (old cash-flow heuristic, control)
-python ml_evaluation.py         # 5-fold stratified CV
-python shap_analysis.py         # SHAP
-python dl_financial_health.py   # PyTorch MLP (optional)
-python csv_to_pdf.py            # HTML preview of CSVs
+python company_metrics.py --csv-dir output/analysis/_csv_255
+python industry_portrait.py
+python dupont_pca.py
+python cash_gap_model.py          # needs scikit-learn; shap optional
+python financial_analysis.py --csv-dir output/analysis/_csv_255
+python ml_financial_health.py     # control: OCF>0 and cash increase>0
+python ml_evaluation.py
+python shap_analysis.py
+python dl_financial_health.py     # appendix MLP
+python csv_to_pdf.py
 ```
 
-`financial_analysis.py` cleans before it summarises:
+`financial_analysis.py` drops revenue below 100,000 CNY, prefers 营业成本 over 营业总成本, and clips gross-margin charts to [-50%, 80%]. Charts use new filenames (`financial_analysis_clean.png`) so Windows Explorer does not keep an old CreationTime.
 
-- drop revenue below **100,000 CNY** (footnote ids such as `1.0` / `17.4` often land in the amount column)
-- prefer **营业成本** (COGS) over **营业总成本** (which includes period expenses)
-- clip gross margin to **[-50%, 80%]** for the mean and histogram; the median stays on raw values
+The older “financial health” scripts still use **OCF>0 and net cash increase>0** with cash-flow line items (542 firms, 5-fold ROC-AUC ≈ 0.62). That is a control experiment, not a credit rating.
 
-Outputs (gitignored under `output/analysis/`):
-
-- `financial_analysis_clean.png` — charts (new file each run; not the old `financial_analysis.png`)
-- `summary_statistics_clean.csv` — coverage, medians, clipped means
-- `company_metrics.csv` — one row per firm-year (gross/net margin, DuPont, current ratio, leverage, AR/inventory/OCF to revenue, YoY). Definitions: `company_metrics_dictionary.md`. Ratios keep a raw column and a 1%/99% winsorized `*_w` column.
-- `industry_portrait.png` / `industry_cash_gap.png` — three-group boxplots and “profit>0 but OCF<0” bars. Industry comes from `output/pdf/` subfolders collapsed to 制造 / 软件信息 / 其他. Text: `industry_portrait.md`.
-- `dupont_pca.png` — Spearman heatmap, PCA scree, loadings. DuPont identity and component notes: `dupont_pca.md`.
-- `cash_gap_roc.png` / `cash_gap_shap.png` — 5-fold ROC/PR for Random Forest vs logistic regression on “profit>0 and OCF<0”. Features are BS/IS ratios (no OCF items, no net margin/ROE). Text: `cash_gap_model.md`.
-
-The “financial health” label is a **cash-flow heuristic**: operating cash flow > 0 **and** net increase in cash > 0. Features are cash-flow line items. 5-fold CV on 542 firms: accuracy 0.609 ± 0.032, **ROC-AUC 0.615 ± 0.040**. Treat this as an experiment, not a credit score.
+Outputs under `output/analysis/` are gitignored. Committed notes: `industry_portrait.md`, `dupont_pca.md`, `cash_gap_model.md`.
 
 ## Layout
 
@@ -162,6 +159,8 @@ neeq-financial-data-pipeline/
 ├── dupont_pca.md
 ├── cash_gap_model.py
 ├── cash_gap_model.md
+├── ANALYSIS_REPORT.md
+├── ANALYSIS_README.md
 ├── ml_financial_health.py
 ├── ml_evaluation.py
 ├── shap_analysis.py
@@ -195,8 +194,8 @@ CI runs the same command on Python 3.11 (without installing `torch`).
 - A few scanned / image-only statements still need RapidOCR; without it those tables are skipped
 - Footnotes can still leak into a statement; analysis prefers primary rows and skips `其中：` lines
 - On-disk CSVs are a mix of parser generations until you re-export
+- Analysis is a single-year cross-section, manufacturing-heavy, with no default labels
 - OCR is ~1–2 s/page
-- `financial_analysis.py` / ML scripts currently run on import (no `if __name__ == '__main__'` guard)
 
 ## License
 
