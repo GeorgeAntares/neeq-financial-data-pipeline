@@ -31,6 +31,7 @@ class CashflowFeaturesTest(unittest.TestCase):
         for name in (
             'financial_analysis.py',
             'company_metrics.py',
+            'industry_portrait.py',
             'ml_financial_health.py',
             'ml_evaluation.py',
             'shap_analysis.py',
