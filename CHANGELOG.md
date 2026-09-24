@@ -5,6 +5,11 @@ All notable changes follow Semantic Versioning and Keep a Changelog.
 
 ## [Unreleased]
 
+## [v0.2.0] - 2026-09-24
+
+解析器定位与附注列修复之后，分析从描述统计扩到公司级指标、行业画像、杜邦/PCA 和现金缺口分类。默认数据源改为 NEEQ，并加上 GitHub Actions。
+Parser locator and footnote-column fixes; analysis expands from descriptive stats to company metrics, industry portraits, DuPont/PCA, and a cash-gap classifier. Default source is NEEQ; CI added.
+
 ### Added / 新增
 
 - 公司级指标库：`company_metrics.py` 从三大表第一张（合并）表生成一家一行宽表，含毛利率、净利率、杜邦、偿债、营运、OCF 与同比；比率另有 1%/99% 截尾列 / Company-level metrics wide table (`company_metrics.py`) from the first consolidated block of each statement, with DuPont, liquidity, working-capital, OCF, YoY, and winsorized ratio columns
