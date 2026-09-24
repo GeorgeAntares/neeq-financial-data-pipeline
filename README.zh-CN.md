@@ -10,7 +10,7 @@
 <p align="center"><a href="README.md">English</a> | <strong>简体中文</strong></p>
 
 <p align="center">
-从全国股转系统（可选巨潮资讯网）抓取年报 PDF，解析三大财务报表，导出 CSV，并做统计分析与机器学习实验。
+从全国股转系统（可选巨潮资讯网）抓取年报 PDF，解析三大财务报表，导出 CSV，并做公司级财务分析。
 </p>
 
 ## 功能
@@ -21,7 +21,7 @@
 - 三级 PDF 解析：pdfplumber → PyMuPDF → RapidOCR
 - 文本层起始页定位（跳过管理层分析 / 审计封面，丢掉附注列）
 - 导出合并资产负债表、利润表、现金流量表 CSV
-- 可选：统计分析、随机森林 / MLP、SHAP 图
+- 公司级指标、三类行业画像、杜邦 / PCA，以及「利润为正且 OCF 为负」分类
 
 默认数据源是 **NEEQ**。巨潮请加 `--source cninfo`。
 
@@ -110,36 +110,33 @@ pdfplumber（文本层）→ PyMuPDF（备用文本）→ RapidOCR（页面截�
 
 ## 分析与模型
 
+完整报告：[`ANALYSIS_REPORT.md`](ANALYSIS_REPORT.md)。指标公式：[`company_metrics_dictionary.md`](company_metrics_dictionary.md)。
+
+新解析器约 255 套 CSV（只取第一张合并表，营收 ≥ 10 万元）：
+
+- **195** 家。营收中位数 1.64 亿元，毛利率 25.7%，应收/收入 31.7%，存货/收入 22.9%。
+- 行业收成制造 90 / 软件信息 26 / 其他 79。软件应收更重（49% vs 29%），毛利更高、经营现金更跳；「利润为正且 OCF 为负」为 8.5% / 0% / 17%。
+- 杜邦恒等式在 104 家上成立（最大误差 3.6×10⁻¹⁵）。ROE 主要跟着净利率（Spearman 0.72）。SVD 主成分：PC1 规模 34%，PC2 杠杆 20%，PC3 现金 14%。
+- 现金缺口分类（12 / 109 正例）：只用资产负债和利润表比率，不放 OCF 分项和净利率/ROE。逻辑回归 5 折 ROC **0.52 ± 0.11**，PR-AUC 0.19（基线 11%）。随机森林在 0.5 阈值下折外召回为 0。
+
 ```bash
-python financial_analysis.py    # 描述统计与图
-python financial_analysis.py --csv-dir output/analysis/_csv_255   # 指定子集目录
-python company_metrics.py       # 公司级指标宽表（默认 _csv_255）
-python industry_portrait.py     # 制造 / 软件信息 / 其他 行业画像
-python dupont_pca.py            # 杜邦恒等式、Spearman 相关阵、SVD 主成分
-python cash_gap_model.py        # 随机森林 vs 逻辑回归：利润为正但 OCF 为负
-python ml_financial_health.py   # 随机森林（旧现金流启发式，对照）
-python ml_evaluation.py         # 5 折分层交叉验证
-python shap_analysis.py         # SHAP
-python dl_financial_health.py   # PyTorch MLP（可选）
-python csv_to_pdf.py            # CSV 的 HTML 预览
+python company_metrics.py --csv-dir output/analysis/_csv_255
+python industry_portrait.py
+python dupont_pca.py
+python cash_gap_model.py          # 需要 scikit-learn；shap 可选
+python financial_analysis.py --csv-dir output/analysis/_csv_255
+python ml_financial_health.py     # 对照：OCF>0 且现金净增加>0
+python ml_evaluation.py
+python shap_analysis.py
+python dl_financial_health.py     # 附录 MLP
+python csv_to_pdf.py
 ```
 
-`financial_analysis.py` 先清洗再汇总：
+`financial_analysis.py` 会丢掉营收低于 10 万元的样本，成本优先「营业成本」，毛利率图截到 [-50%, 80%]。图用新文件名（`financial_analysis_clean.png`），避免 Windows 资源管理器仍显示旧的创建时间。
 
-- 去掉营收低于 **10 万元** 的样本（`1.0`、`17.4` 这类多半是附注编号进了金额列）
-- 成本优先用 **营业成本**，没有时才用含期间费用的 **营业总成本**
-- 毛利率均值和直方图截到 **[-50%, 80%]**，中位数仍用原始值
+旧脚本仍用 **OCF>0 且现金净增加>0** 加现金流科目（542 家，5 折 ROC-AUC ≈ 0.62）。那是对照实验，不是信用评级。
 
-输出在 `output/analysis/`（已 gitignore）：
-
-- `financial_analysis_clean.png` — 图（每次新写文件；不要和旧的 `financial_analysis.png` 搞混）
-- `summary_statistics_clean.csv` — 覆盖率、中位数、截尾均值
-- `company_metrics.csv` — 一家一年一行（毛利率、净利率、杜邦、流动比率、资产负债率、应收/存货/OCF 占收入、同比）。口径见 `company_metrics_dictionary.md`。比率同时保留原始列和 1%/99% 截尾的 `*_w` 列。
-- `industry_portrait.png` / `industry_cash_gap.png` — 三类行业箱线图，以及「利润为正但 OCF 为负」占比。行业来自 `output/pdf/` 子目录，合并为制造 / 软件信息 / 其他。文字见 `industry_portrait.md`。
-- `dupont_pca.png` — Spearman 热图、PCA 碎石图与载荷。杜邦核对与成分说明见 `dupont_pca.md`。
-- `cash_gap_roc.png` / `cash_gap_shap.png` — 分层 5 折，随机森林对照逻辑回归，预测「利润为正且 OCF 为负」。特征是资产负债和利润表比率（不用 OCF 分项，不用净利率/ROE）。文字见 `cash_gap_model.md`。
-
-「财务健康」标签是**现金流启发式**：经营现金流 > 0 **且** 现金净增加额 > 0。特征是现金流科目。542 家企业 5 折 CV：准确率 0.609 ± 0.032，**ROC-AUC 0.615 ± 0.040**。当作实验即可，不是信用评级。
+`output/analysis/` 已 gitignore。仓库里的文字底稿：`industry_portrait.md`、`dupont_pca.md`、`cash_gap_model.md`。
 
 ## 目录
 
@@ -162,6 +159,8 @@ neeq-financial-data-pipeline/
 ├── dupont_pca.md
 ├── cash_gap_model.py
 ├── cash_gap_model.md
+├── ANALYSIS_REPORT.md
+├── ANALYSIS_README.md
 ├── ml_financial_health.py
 ├── ml_evaluation.py
 ├── shap_analysis.py
@@ -195,8 +194,8 @@ CI 在 Python 3.11 上跑同一命令（不安 `torch`）。
 - 少数扫描件 / 图片表仍需 RapidOCR；没装 OCR 时这些表会被跳过
 - 附注仍可能混进报表；分析会优先主表行并跳过「其中：」明细
 - 磁盘上的 CSV 可能是新旧解析器混着的，需要重导出才会统一
+- 分析是单期截面，制造业偏多，没有违约标签
 - OCR 大约 1–2 秒/页
-- `financial_analysis.py` / ML 脚本目前一 import 就会跑完全部（没有 `if __name__ == '__main__'`）
 
 ## 许可
 
