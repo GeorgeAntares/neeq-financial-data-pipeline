@@ -30,6 +30,7 @@ class CashflowFeaturesTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         for name in (
             'financial_analysis.py',
+            'company_metrics.py',
             'ml_financial_health.py',
             'ml_evaluation.py',
             'shap_analysis.py',

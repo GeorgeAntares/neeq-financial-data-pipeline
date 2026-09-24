@@ -5,6 +5,11 @@ All notable changes follow Semantic Versioning and Keep a Changelog.
 
 ## [Unreleased]
 
+### Added / 新增
+
+- 公司级指标库：`company_metrics.py` 从三大表第一张（合并）表生成一家一行宽表，含毛利率、净利率、杜邦、偿债、营运、OCF 与同比；比率另有 1%/99% 截尾列 / Company-level metrics wide table (`company_metrics.py`) from the first consolidated block of each statement, with DuPont, liquidity, working-capital, OCF, YoY, and winsorized ratio columns
+- 指标数据字典 `company_metrics_dictionary.md`（公式与科目来源）/ Data dictionary for those columns
+
 ### Fixed / 修复
 
 - 「半年度报告」因包含「年度报告」子串被当成年报下载；现过滤半年报 / 已取消 / 摘要 / 季报 / Half-year titles matched `年度报告` as a substring; they are now excluded with cancelled, summary, and quarterly reports
