@@ -114,6 +114,7 @@ On a 36-PDF stratified sample after the locator fix: **100%** had at least one u
 python financial_analysis.py    # descriptive stats + charts
 python financial_analysis.py --csv-dir output/analysis/_csv_255   # subset folder
 python company_metrics.py       # company-level metrics wide table (default: _csv_255)
+python industry_portrait.py     # manufacturing / software / other portraits
 python ml_financial_health.py   # Random Forest
 python ml_evaluation.py         # 5-fold stratified CV
 python shap_analysis.py         # SHAP
@@ -132,6 +133,7 @@ Outputs (gitignored under `output/analysis/`):
 - `financial_analysis_clean.png` — charts (new file each run; not the old `financial_analysis.png`)
 - `summary_statistics_clean.csv` — coverage, medians, clipped means
 - `company_metrics.csv` — one row per firm-year (gross/net margin, DuPont, current ratio, leverage, AR/inventory/OCF to revenue, YoY). Definitions: `company_metrics_dictionary.md`. Ratios keep a raw column and a 1%/99% winsorized `*_w` column.
+- `industry_portrait.png` / `industry_cash_gap.png` — three-group boxplots and “profit>0 but OCF<0” bars. Industry comes from `output/pdf/` subfolders collapsed to 制造 / 软件信息 / 其他. Text: `industry_portrait.md`.
 
 The “financial health” label is a **cash-flow heuristic**: operating cash flow > 0 **and** net increase in cash > 0. Features are cash-flow line items. 5-fold CV on 542 firms: accuracy 0.609 ± 0.032, **ROC-AUC 0.615 ± 0.040**. Treat this as an experiment, not a credit score.
 
@@ -149,6 +151,9 @@ neeq-financial-data-pipeline/
 ├── financial_analysis.py
 ├── company_metrics.py
 ├── company_metrics_dictionary.md
+├── industry_groups.py
+├── industry_portrait.py
+├── industry_portrait.md
 ├── ml_financial_health.py
 ├── ml_evaluation.py
 ├── shap_analysis.py
