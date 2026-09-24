@@ -116,7 +116,8 @@ python financial_analysis.py --csv-dir output/analysis/_csv_255   # 指定子集
 python company_metrics.py       # 公司级指标宽表（默认 _csv_255）
 python industry_portrait.py     # 制造 / 软件信息 / 其他 行业画像
 python dupont_pca.py            # 杜邦恒等式、Spearman 相关阵、SVD 主成分
-python ml_financial_health.py   # 随机森林
+python cash_gap_model.py        # 随机森林 vs 逻辑回归：利润为正但 OCF 为负
+python ml_financial_health.py   # 随机森林（旧现金流启发式，对照）
 python ml_evaluation.py         # 5 折分层交叉验证
 python shap_analysis.py         # SHAP
 python dl_financial_health.py   # PyTorch MLP（可选）
@@ -136,6 +137,7 @@ python csv_to_pdf.py            # CSV 的 HTML 预览
 - `company_metrics.csv` — 一家一年一行（毛利率、净利率、杜邦、流动比率、资产负债率、应收/存货/OCF 占收入、同比）。口径见 `company_metrics_dictionary.md`。比率同时保留原始列和 1%/99% 截尾的 `*_w` 列。
 - `industry_portrait.png` / `industry_cash_gap.png` — 三类行业箱线图，以及「利润为正但 OCF 为负」占比。行业来自 `output/pdf/` 子目录，合并为制造 / 软件信息 / 其他。文字见 `industry_portrait.md`。
 - `dupont_pca.png` — Spearman 热图、PCA 碎石图与载荷。杜邦核对与成分说明见 `dupont_pca.md`。
+- `cash_gap_roc.png` / `cash_gap_shap.png` — 分层 5 折，随机森林对照逻辑回归，预测「利润为正且 OCF 为负」。特征是资产负债和利润表比率（不用 OCF 分项，不用净利率/ROE）。文字见 `cash_gap_model.md`。
 
 「财务健康」标签是**现金流启发式**：经营现金流 > 0 **且** 现金净增加额 > 0。特征是现金流科目。542 家企业 5 折 CV：准确率 0.609 ± 0.032，**ROC-AUC 0.615 ± 0.040**。当作实验即可，不是信用评级。
 
@@ -158,6 +160,8 @@ neeq-financial-data-pipeline/
 ├── industry_portrait.md
 ├── dupont_pca.py
 ├── dupont_pca.md
+├── cash_gap_model.py
+├── cash_gap_model.md
 ├── ml_financial_health.py
 ├── ml_evaluation.py
 ├── shap_analysis.py

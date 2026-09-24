@@ -116,7 +116,8 @@ python financial_analysis.py --csv-dir output/analysis/_csv_255   # subset folde
 python company_metrics.py       # company-level metrics wide table (default: _csv_255)
 python industry_portrait.py     # manufacturing / software / other portraits
 python dupont_pca.py            # DuPont identity, Spearman matrix, SVD PCA
-python ml_financial_health.py   # Random Forest
+python cash_gap_model.py        # RF vs logit: profit>0 but OCF<0
+python ml_financial_health.py   # Random Forest (old cash-flow heuristic, control)
 python ml_evaluation.py         # 5-fold stratified CV
 python shap_analysis.py         # SHAP
 python dl_financial_health.py   # PyTorch MLP (optional)
@@ -136,6 +137,7 @@ Outputs (gitignored under `output/analysis/`):
 - `company_metrics.csv` — one row per firm-year (gross/net margin, DuPont, current ratio, leverage, AR/inventory/OCF to revenue, YoY). Definitions: `company_metrics_dictionary.md`. Ratios keep a raw column and a 1%/99% winsorized `*_w` column.
 - `industry_portrait.png` / `industry_cash_gap.png` — three-group boxplots and “profit>0 but OCF<0” bars. Industry comes from `output/pdf/` subfolders collapsed to 制造 / 软件信息 / 其他. Text: `industry_portrait.md`.
 - `dupont_pca.png` — Spearman heatmap, PCA scree, loadings. DuPont identity and component notes: `dupont_pca.md`.
+- `cash_gap_roc.png` / `cash_gap_shap.png` — 5-fold ROC/PR for Random Forest vs logistic regression on “profit>0 and OCF<0”. Features are BS/IS ratios (no OCF items, no net margin/ROE). Text: `cash_gap_model.md`.
 
 The “financial health” label is a **cash-flow heuristic**: operating cash flow > 0 **and** net increase in cash > 0. Features are cash-flow line items. 5-fold CV on 542 firms: accuracy 0.609 ± 0.032, **ROC-AUC 0.615 ± 0.040**. Treat this as an experiment, not a credit score.
 
@@ -158,6 +160,8 @@ neeq-financial-data-pipeline/
 ├── industry_portrait.md
 ├── dupont_pca.py
 ├── dupont_pca.md
+├── cash_gap_model.py
+├── cash_gap_model.md
 ├── ml_financial_health.py
 ├── ml_evaluation.py
 ├── shap_analysis.py

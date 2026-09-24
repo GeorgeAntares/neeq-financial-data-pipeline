@@ -11,6 +11,7 @@ All notable changes follow Semantic Versioning and Keep a Changelog.
 - 指标数据字典 `company_metrics_dictionary.md`（公式与科目来源）/ Data dictionary for those columns
 - 行业画像：`industry_portrait.py` 把 PDF 子目录收成制造 / 软件信息 / 其他，输出中位数、箱线图和「利润为正且 OCF 为负」占比 / Industry portraits (manufacturing / software / other) with medians, boxplots, and profit-positive-but-OCF-negative shares
 - 杜邦核对 + Spearman 相关阵 + numpy SVD 主成分（规模 / 杠杆 / 现金），见 `dupont_pca.py` / DuPont identity, Spearman correlations, and SVD PCA (scale / leverage / cash)
+- 现金缺口分类：`cash_gap_model.py` 用资产负债/利润表比率预测「利润为正且 OCF 为负」，随机森林对照逻辑回归，分层 5 折 + SHAP / Cash-gap classifier (profit>0 and OCF<0) with RF vs logit, stratified 5-fold CV, and SHAP
 
 ### Fixed / 修复
 

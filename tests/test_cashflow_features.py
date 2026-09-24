@@ -33,6 +33,7 @@ class CashflowFeaturesTest(unittest.TestCase):
             'company_metrics.py',
             'industry_portrait.py',
             'dupont_pca.py',
+            'cash_gap_model.py',
             'ml_financial_health.py',
             'ml_evaluation.py',
             'shap_analysis.py',
